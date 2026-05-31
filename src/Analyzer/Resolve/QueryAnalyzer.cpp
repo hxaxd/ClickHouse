@@ -795,7 +795,7 @@ void QueryAnalyzer::convertLimitOffsetExpression(QueryTreeNodePtr & expression_n
         applyVisitor(FieldVisitorToString(), limit_offset_constant_node->getValue()) , expression_description);
 }
 
-static void validateWatermarkSettings(
+[[maybe_unused]] static void validateWatermarkSettings(
     const WatermarkSettings & watermark,
     const StorageSnapshotPtr & storage_snapshot,
     IdentifierResolveScope & scope)
