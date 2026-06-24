@@ -313,6 +313,8 @@ public:
     /// Used by tests.
     bool containsTTLPath(const std::string & path) const;
 
+    void nodeLoadedFromSnapshot(std::string_view path, const KeeperNodeStats & stats);
+
     /// Register watches from a request/response pair.
     void updateWatches(
         const Coordination::ZooKeeperRequestPtr & zk_request,
