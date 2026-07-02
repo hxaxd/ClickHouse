@@ -25,6 +25,8 @@
 #include <Common/ZooKeeper/ZooKeeperIO.h>
 #include <Common/logger_useful.h>
 
+#include <limits>
+
 TYPED_TEST(CoordinationTest, RaftServerConfigParse)
 {
     auto parse = Coordination::RaftServerConfig::parse;
@@ -928,6 +930,25 @@ TYPED_TEST(CoordinationTest, TestFeatureFlags)
     ASSERT_TRUE(feature_flags.isEnabled(KeeperFeatureFlag::CHECK_STAT));
     ASSERT_TRUE(feature_flags.isEnabled(KeeperFeatureFlag::TRY_REMOVE));
     ASSERT_TRUE(feature_flags.isEnabled(KeeperFeatureFlag::LIST_WITH_STAT_AND_DATA));
+}
+
+TEST(CoordinationRequestSize, WriteRejectsRequestOverInt32)
+{
+    // The guard fires on the computed size before serialization, so a fake sizeImpl needs no real data.
+    struct HugeRequest final : Coordination::ZooKeeperRequest
+    {
+        String getPath() const override { return {}; }
+        Coordination::OpNum getOpNum() const override { return Coordination::OpNum::Create; }
+        void writeImpl(DB::WriteBuffer &) const override {}
+        size_t sizeImpl() const override { return std::numeric_limits<int32_t>::max(); }
+        void readImpl(DB::ReadBuffer &) override {}
+        Coordination::ZooKeeperResponsePtr makeResponse() const override { return nullptr; }
+        bool isReadRequest() const override { return false; }
+    };
+
+    HugeRequest request;
+    DB::WriteBufferFromNuraftBuffer wbuf;
+    EXPECT_THROW(request.write(wbuf, false, false), Coordination::Exception);
 }
 
 #endif
