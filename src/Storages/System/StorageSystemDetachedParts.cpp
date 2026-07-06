@@ -16,6 +16,7 @@
 #include <Processors/Sources/SourceFromSingleChunk.h>
 #include <QueryPipeline/Pipe.h>
 #include <IO/SharedThreadPools.h>
+#include <Common/ZooKeeper/ZooKeeperCommon.h>
 #include <Common/threadPoolCallbackRunner.h>
 #include <Common/setThreadName.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
@@ -178,6 +179,8 @@ private:
             /// Passing a reference to worker_state is safe, because the variable outlives runner
             auto worker = [&worker_state] ()
             {
+                auto component_guard = Coordination::setCurrentComponent("DetachedPartsSource::calculatePartSizeOnDisk");
+
                 for (auto id = worker_state.next_task++; id < worker_state.tasks.size(); id = worker_state.next_task++)
                 {
                     auto & task = worker_state.tasks.at(id);
