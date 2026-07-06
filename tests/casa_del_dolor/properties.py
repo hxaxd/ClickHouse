@@ -1737,6 +1737,8 @@ keeper_settings = {
         "snapshots_to_keep": threshold_generator(0.2, 0.2, 0, 5),
         "stale_log_gap": threshold_generator(0.2, 0.2, 0, 10000),
         "startup_timeout": threshold_generator(0.2, 0.2, 1000, 600000),
+        "storage_memory_only": true_false_lambda,
+        "use_new_storage": true_false_lambda,
         "use_xid_64": true_false_lambda,
         "write_snapshot_version": lambda: random.choice([6]),
     },
