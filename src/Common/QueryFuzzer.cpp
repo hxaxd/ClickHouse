@@ -4411,6 +4411,95 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         /// block boundaries, sparse blocks and virtual columns
         {"blockNumber", "blockSize", "rowNumberInAllBlocks", "rowNumberInBlock"}};
 
+/// Lightweight `DELETE FROM` / `UPDATE` and the `ALTER TABLE ... DELETE / UPDATE` mutations
+/// carry the same payload (table, predicate, `IN PARTITION`, `SET` assignments) but execute
+/// through different pipelines: classic mutations vs the `_row_exists` mask and patch parts.
+/// Rewriting one form into the other feeds identical expressions through both pipelines.
+/// The lightweight `SETTINGS` clause has no `ALTER` counterpart and is dropped.
+static ASTPtr lightweightToAlterMutation(
+    const ASTQueryWithTableAndOutput & source,
+    const String & cluster,
+    ASTAlterCommand::Type type,
+    const ASTPtr & predicate,
+    const ASTPtr & partition,
+    const ASTPtr & assignments)
+{
+    auto command = make_intrusive<ASTAlterCommand>();
+    command->type = type;
+    if (predicate)
+        command->predicate = command->children.emplace_back(predicate->clone()).get();
+    if (partition)
+        command->partition = command->children.emplace_back(partition->clone()).get();
+    if (assignments)
+        command->update_assignments = command->children.emplace_back(assignments->clone()).get();
+
+    auto command_list = make_intrusive<ASTExpressionList>();
+    command_list->children.push_back(command);
+
+    auto alter = make_intrusive<ASTAlterQuery>();
+    alter->alter_object = ASTAlterQuery::AlterObjectType::TABLE;
+    alter->set(alter->command_list, command_list);
+    if (source.table)
+        alter->setTable(source.getTable());
+    if (source.database)
+        alter->setDatabase(source.getDatabase());
+    alter->uuid = source.uuid;
+    alter->cluster = cluster;
+    return alter;
+}
+
+/// The reverse rewrite: a single-command `ALTER TABLE ... DELETE / UPDATE` becomes the
+/// lightweight form. Multi-command ALTERs have no lightweight equivalent and are left alone.
+/// Returns nullptr when the ALTER does not have the convertible shape.
+static ASTPtr alterMutationToLightweight(const ASTAlterQuery & alter)
+{
+    if (alter.alter_object != ASTAlterQuery::AlterObjectType::TABLE || !alter.table || !alter.command_list
+        || alter.command_list->children.size() != 1)
+        return nullptr;
+
+    const auto * command = typeid_cast<const ASTAlterCommand *>(alter.command_list->children.front().get());
+    if (!command || !command->predicate)
+        return nullptr;
+
+    const auto fill_member = [](auto & query, const IAST * member, ASTPtr & target)
+    {
+        if (!member)
+            return;
+        target = member->clone();
+        query->children.push_back(target);
+    };
+
+    const auto fill_table = [&](auto & query)
+    {
+        query->setTable(alter.getTable());
+        if (alter.database)
+            query->setDatabase(alter.getDatabase());
+        query->uuid = alter.uuid;
+        query->cluster = alter.cluster;
+    };
+
+    if (command->type == ASTAlterCommand::DELETE)
+    {
+        auto query = make_intrusive<ASTDeleteQuery>();
+        fill_member(query, command->partition, query->partition);
+        fill_member(query, command->predicate, query->predicate);
+        fill_table(query);
+        return query;
+    }
+
+    if (command->type == ASTAlterCommand::UPDATE && command->update_assignments)
+    {
+        auto query = make_intrusive<ASTUpdateQuery>();
+        fill_member(query, command->partition, query->partition);
+        fill_member(query, command->predicate, query->predicate);
+        fill_member(query, command->update_assignments, query->assignments);
+        fill_table(query);
+        return query;
+    }
+
+    return nullptr;
+}
+
 void QueryFuzzer::fuzz(ASTPtr & ast)
 {
     if (!ast)
@@ -5366,6 +5455,13 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     {
         fuzzMandatoryPredicate(delete_query->predicate, delete_query->children);
         fuzz(delete_query->children);
+        /// Occasionally rewrite into the equivalent `ALTER TABLE ... DELETE` mutation
+        if (delete_query->table && delete_query->predicate && fuzz_rand() % 10 == 0)
+        {
+            debug_visited_nodes.erase(ast.get());
+            ast = lightweightToAlterMutation(
+                *delete_query, delete_query->cluster, ASTAlterCommand::DELETE, delete_query->predicate, delete_query->partition, nullptr);
+        }
     }
     else if (auto * update_query = typeid_cast<ASTUpdateQuery *>(ast.get()))
     {
@@ -5377,6 +5473,18 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 update_query->assignments->children.begin() + fuzz_rand() % update_query->assignments->children.size());
         }
         fuzz(update_query->children);
+        /// Occasionally rewrite into the equivalent `ALTER TABLE ... UPDATE` mutation
+        if (update_query->table && update_query->predicate && update_query->assignments && fuzz_rand() % 10 == 0)
+        {
+            debug_visited_nodes.erase(ast.get());
+            ast = lightweightToAlterMutation(
+                *update_query,
+                update_query->cluster,
+                ASTAlterCommand::UPDATE,
+                update_query->predicate,
+                update_query->partition,
+                update_query->assignments);
+        }
     }
     else if (auto * alter_query = typeid_cast<ASTAlterQuery *>(ast.get()))
     {
@@ -5387,6 +5495,12 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             cmds.erase(cmds.begin() + fuzz_rand() % cmds.size());
         }
         fuzz(alter_query->children);
+        /// Occasionally rewrite a single-command DELETE / UPDATE mutation into the lightweight form
+        if (fuzz_rand() % 10 == 0 && auto lightweight = alterMutationToLightweight(*alter_query))
+        {
+            debug_visited_nodes.erase(ast.get());
+            ast = lightweight;
+        }
     }
     else if (auto * alter_cmd = typeid_cast<ASTAlterCommand *>(ast.get()))
     {
