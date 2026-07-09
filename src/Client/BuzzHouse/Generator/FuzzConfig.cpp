@@ -1,10 +1,13 @@
 #include <Client/BuzzHouse/Generator/FuzzConfig.h>
 
 #include <ranges>
+#include <sstream>
 #include <IO/copyData.h>
 #include <fmt/ranges.h>
 #include <Common/Exception.h>
 #include <Common/formatReadable.h>
+
+#include <Poco/Base64Decoder.h>
 
 namespace DB
 {
@@ -1170,6 +1173,59 @@ String FuzzConfig::tableGetRandomPartitionOrPart(
         std::getline(infile, res);
         if (!res.empty() && res.back() == '\r')
             res.pop_back();
+    }
+    return res;
+}
+
+String FuzzConfig::tableGetRandomPartitionValue(const uint64_t rand_val, const String & database, const String & table)
+{
+    String res;
+    const String db_clause = database.empty() ? "" : (R"("database" = ')" + escapeSQLString(database) + "' AND ");
+
+    /// Read the partition value display (`system.parts.partition`) base64-encoded so the raw bytes
+    /// survive the TabSeparated OUTFILE unescaped (values may contain backslashes/quotes).
+    if (processServerQuery(
+            true,
+            fmt::format(
+                "SELECT base64Encode(z.y) FROM (SELECT (row_number() OVER () - 1) AS x, \"partition\" AS y FROM \"system\".\"parts\" "
+                "WHERE {}\"table\" = '{}' AND \"partition_id\" != 'all') AS z WHERE z.x = (SELECT {} % max2(count(), 1) FROM "
+                "\"system\".\"parts\" WHERE {}\"table\" = '{}' AND \"partition_id\" != 'all') INTO OUTFILE '{}' TRUNCATE FORMAT "
+                "TabSeparated;",
+                db_clause,
+                escapeSQLString(table),
+                rand_val,
+                db_clause,
+                escapeSQLString(table),
+                fuzzer_out_file.generic_string())))
+    {
+        String encoded;
+        std::ifstream infile(fuzzer_out_file, std::ios::in);
+
+        std::getline(infile, encoded);
+        if (!encoded.empty() && encoded.back() == '\r')
+            encoded.pop_back();
+        if (!encoded.empty())
+        {
+            std::istringstream istr(encoded);
+            Poco::Base64Decoder decoder(istr);
+
+            res.assign(std::istreambuf_iterator<char>(decoder), std::istreambuf_iterator<char>());
+        }
+    }
+    /// Only emit values that are re-parseable as a bare `PARTITION <expr>`: the parenthesised tuple
+    /// form for composite/typed keys (e.g. `(202101, 'x')`), which ClickHouse always renders quoted,
+    /// or a bare integer (e.g. `toYYYYMM(d)` -> `202101`). Single-column string keys render unquoted
+    /// (e.g. `abc`) and would be a syntax error, so those fall back to `PARTITION ID`.
+    const bool is_tuple = res.size() > 1 && res.front() == '(' && res.back() == ')';
+    bool is_integer = !res.empty();
+    for (size_t i = (!res.empty() && res.front() == '-') ? 1 : 0; is_integer && i < res.size(); i++)
+    {
+        is_integer &= res[i] >= '0' && res[i] <= '9';
+    }
+    is_integer &= !(res.size() == 1 && res.front() == '-'); /// reject a lone "-"
+    if (!is_tuple && !is_integer)
+    {
+        res.clear();
     }
     return res;
 }

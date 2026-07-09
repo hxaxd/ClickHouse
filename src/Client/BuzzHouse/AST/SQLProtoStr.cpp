@@ -3683,9 +3683,10 @@ CONV_FN(PartitionExpr, pexpr)
     {
         case PartitionType::kPart: appendSQLStringLiteral(ret, pexpr.part()); break;
         case PartitionType::kPartition:
-            ret += "$piddef$";
+            /// The partition key value expression, e.g. `202101` or `(202101, 'x')`. It is emitted
+            /// verbatim: the generator only fills this with a re-parseable value read from
+            /// `system.parts.partition` (see FuzzConfig::tableGetRandomPartitionValue).
             ret += pexpr.partition();
-            ret += "$piddef$";
             break;
         case PartitionType::kPartitionId:
             ret += "ID ";

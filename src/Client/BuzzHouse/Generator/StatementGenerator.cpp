@@ -882,9 +882,16 @@ void StatementGenerator::generateNextTablePartition(
 
         if ((table_has_partitions = ((allow_parts == 2 || rg.nextMediumNumber() < 76) && fc.tableHasPartitions(detached, dname, tname))))
         {
+            String pval;
+
             if (allow_parts == 2 || (allow_parts == 1 && rg.nextBool()))
             {
                 pexpr->set_part(fc.tableGetRandomPartitionOrPart(rg.nextInFullRange(), detached, false, dname, tname));
+            }
+            else if (!detached && rg.nextBool() && !(pval = fc.tableGetRandomPartitionValue(rg.nextInFullRange(), dname, tname)).empty())
+            {
+                /// Partition key value form, e.g. `DROP PARTITION 202101` / `DROP PARTITION (202101, 'x')`
+                pexpr->set_partition(pval);
             }
             else
             {
