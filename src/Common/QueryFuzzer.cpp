@@ -54,6 +54,7 @@
 #include <Parsers/ASTIndexDeclaration.h>
 #include <Parsers/ASTInsertQuery.h>
 #include <Parsers/ASTInterpolateElement.h>
+#include <Parsers/ASTKillQueryQuery.h>
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/ASTOptimizeQuery.h>
 #include <Parsers/ASTOrderByElement.h>
@@ -64,6 +65,7 @@
 #include <Parsers/ASTQueryParameter.h>
 #include <Parsers/ASTQueryWithOutput.h>
 #include <Parsers/ASTRefreshStrategy.h>
+#include <Parsers/ASTRenameQuery.h>
 #include <Parsers/ASTSQLSecurity.h>
 #include <Parsers/ASTSampleRatio.h>
 #include <Parsers/ASTSelectIntersectExceptQuery.h>
@@ -82,10 +84,14 @@
 #include <Parsers/ASTUseQuery.h>
 #include <Parsers/ASTWindowDefinition.h>
 #include <Parsers/ASTWithElement.h>
+#include <Parsers/Access/ASTCreateQuotaQuery.h>
 #include <Parsers/Access/ASTCreateRoleQuery.h>
 #include <Parsers/Access/ASTCreateRowPolicyQuery.h>
+#include <Parsers/Access/ASTCreateSettingsProfileQuery.h>
+#include <Parsers/Access/ASTCreateUserQuery.h>
 #include <Parsers/Access/ASTDropAccessEntityQuery.h>
 #include <Parsers/Access/ASTGrantQuery.h>
+#include <Parsers/Access/ASTSetRoleQuery.h>
 #include <Parsers/ParserDataType.h>
 #include <Parsers/ParserQuery.h>
 #include <Parsers/SyncReplicaMode.h>
@@ -5595,6 +5601,39 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         if (optimize_query->partition)
             fuzz(optimize_query->partition);
     }
+    else if (auto * rename_query = typeid_cast<ASTRenameQuery *>(ast.get()))
+    {
+        /// Turn RENAME into EXCHANGE, or a table rename into a database/dictionary rename.
+        if (fuzz_rand() % 10 == 0)
+            rename_query->exchange = !rename_query->exchange;
+        if (fuzz_rand() % 10 == 0)
+            rename_query->database = !rename_query->database;
+        if (fuzz_rand() % 10 == 0)
+            rename_query->dictionary = !rename_query->dictionary;
+        if (fuzz_rand() % 20 == 0)
+            rename_query->rename_if_cannot_exchange = !rename_query->rename_if_cannot_exchange;
+        /// The from/to database and table identifiers are registered as children.
+        fuzz(rename_query->children);
+    }
+    else if (auto * kill_query = typeid_cast<ASTKillQueryQuery *>(ast.get()))
+    {
+        if (fuzz_rand() % 10 == 0)
+        {
+            static const ASTKillQueryQuery::Type kill_types[] = {
+                ASTKillQueryQuery::Type::Query,
+                ASTKillQueryQuery::Type::Mutation,
+                ASTKillQueryQuery::Type::PartMoveToShard,
+                ASTKillQueryQuery::Type::Transaction,
+            };
+            kill_query->type = kill_types[fuzz_rand() % std::size(kill_types)];
+        }
+        if (fuzz_rand() % 10 == 0)
+            kill_query->sync = !kill_query->sync;
+        if (fuzz_rand() % 10 == 0)
+            kill_query->test = !kill_query->test;
+        /// where_expression is registered as a child.
+        fuzz(kill_query->children);
+    }
     else if (auto * explain_query = typeid_cast<ASTExplainQuery *>(ast.get()))
     {
         const auto & explained_query = explain_query->getExplainedQuery();
@@ -6282,6 +6321,27 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             grant->current_grants = !grant->current_grants;
         fuzz(grant->children);
     }
+    else if (auto * create_user = typeid_cast<ASTCreateUserQuery *>(ast.get()))
+    {
+        if (fuzz_rand() % 10 == 0)
+            create_user->alter = !create_user->alter;
+        if (fuzz_rand() % 10 == 0)
+            create_user->if_exists = !create_user->if_exists;
+        if (fuzz_rand() % 10 == 0)
+            create_user->if_not_exists = !create_user->if_not_exists;
+        if (fuzz_rand() % 10 == 0)
+            create_user->or_replace = !create_user->or_replace;
+        if (fuzz_rand() % 20 == 0)
+            create_user->reset_authentication_methods_to_new = !create_user->reset_authentication_methods_to_new;
+        if (fuzz_rand() % 20 == 0)
+            create_user->add_identified_with = !create_user->add_identified_with;
+        if (fuzz_rand() % 20 == 0)
+            create_user->replace_authentication_methods = !create_user->replace_authentication_methods;
+        if (create_user->global_valid_until)
+            fuzz(create_user->global_valid_until);
+        /// The authentication methods are registered as children.
+        fuzz(create_user->children);
+    }
     else if (auto * create_role = typeid_cast<ASTCreateRoleQuery *>(ast.get()))
     {
         if (fuzz_rand() % 10 == 0)
@@ -6292,6 +6352,17 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             create_role->if_not_exists = !create_role->if_not_exists;
         if (fuzz_rand() % 10 == 0)
             create_role->or_replace = !create_role->or_replace;
+    }
+    else if (auto * create_profile = typeid_cast<ASTCreateSettingsProfileQuery *>(ast.get()))
+    {
+        if (fuzz_rand() % 10 == 0)
+            create_profile->alter = !create_profile->alter;
+        if (fuzz_rand() % 10 == 0)
+            create_profile->if_exists = !create_profile->if_exists;
+        if (fuzz_rand() % 10 == 0)
+            create_profile->if_not_exists = !create_profile->if_not_exists;
+        if (fuzz_rand() % 10 == 0)
+            create_profile->or_replace = !create_profile->or_replace;
     }
     else if (auto * create_policy = typeid_cast<ASTCreateRowPolicyQuery *>(ast.get()))
     {
@@ -6309,10 +6380,52 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             if (filter_expr)
                 fuzz(filter_expr);
     }
+    else if (auto * create_quota = typeid_cast<ASTCreateQuotaQuery *>(ast.get()))
+    {
+        if (fuzz_rand() % 10 == 0)
+            create_quota->alter = !create_quota->alter;
+        if (fuzz_rand() % 10 == 0)
+            create_quota->if_exists = !create_quota->if_exists;
+        if (fuzz_rand() % 10 == 0)
+            create_quota->if_not_exists = !create_quota->if_not_exists;
+        if (fuzz_rand() % 10 == 0)
+            create_quota->or_replace = !create_quota->or_replace;
+        for (auto & limits : create_quota->all_limits)
+        {
+            if (fuzz_rand() % 10 == 0)
+                limits.drop = !limits.drop;
+            if (fuzz_rand() % 10 == 0)
+                limits.randomize_interval = !limits.randomize_interval;
+            /// Fuzz the interval duration — zero, boundary, and large values.
+            if (fuzz_rand() % 10 == 0)
+            {
+                static const UInt64 interval_seconds[] = {0, 1, 60, 3600, 86400, 604800};
+                limits.duration = std::chrono::seconds(interval_seconds[fuzz_rand() % std::size(interval_seconds)]);
+            }
+            /// Fuzz the per-resource maximums (queries, errors, read rows, execution time, ...).
+            for (auto & max_value : limits.max)
+            {
+                if (max_value.has_value() && fuzz_rand() % 10 == 0)
+                {
+                    static const UInt64 quota_maxes[] = {0, 1, 1000, std::numeric_limits<UInt64>::max()};
+                    *max_value = quota_maxes[fuzz_rand() % std::size(quota_maxes)];
+                }
+            }
+        }
+    }
     else if (auto * drop_access = typeid_cast<ASTDropAccessEntityQuery *>(ast.get()))
     {
         if (fuzz_rand() % 10 == 0)
             drop_access->if_exists = !drop_access->if_exists;
+    }
+    else if (auto * set_role = typeid_cast<ASTSetRoleQuery *>(ast.get()))
+    {
+        if (fuzz_rand() % 10 == 0)
+        {
+            static const ASTSetRoleQuery::Kind kinds[]
+                = {ASTSetRoleQuery::Kind::SET_ROLE, ASTSetRoleQuery::Kind::SET_ROLE_DEFAULT, ASTSetRoleQuery::Kind::SET_DEFAULT_ROLE};
+            set_role->kind = kinds[fuzz_rand() % std::size(kinds)];
+        }
     }
     else if (auto * backup = typeid_cast<ASTBackupQuery *>(ast.get()))
     {
