@@ -56,6 +56,7 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
     {"add_minmax_index_for_temporal_columns", trueOrFalseSetting},
     {"allow_coalescing_columns_in_partition_or_order_key", trueOrFalseSetting},
     {"allow_commit_order_projection", trueOrFalseSetting},
+    {"allow_dimensions_outside_sorting_key", trueOrFalseSetting},
     {"allow_experimental_replacing_merge_with_cleanup", trueOrFalseSetting},
     {"allow_experimental_text_index_positions", trueOrFalseSetting},
     {"allow_floating_point_partition_key", trueOrFalseSetting},
@@ -104,6 +105,7 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
     {"compress_marks", trueOrFalseSetting},
     {"compress_per_column_in_compact_parts", trueOrFalseSetting},
     {"compress_primary_key", trueOrFalseSetting},
+    {"compute_exact_num_defaults_for_sparse_columns", trueOrFalseSetting},
     {"concurrent_part_removal_threshold",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.thresholdGenerator<uint64_t>(0.2, 0.2, 0, 100)); }, {}, false)},
@@ -119,6 +121,7 @@ static std::unordered_map<String, CHSetting> mergeTreeTableSettings = {
          },
          {"'ignore'", "'throw'", "'drop'", "'rebuild'"},
          false)},
+    {"deduplication_hashes_cache_update_wait_ms", highRangeSetting},
     {"detach_not_byte_identical_parts", trueOrFalseSetting},
     {"detach_old_local_parts_when_cloning_replica", trueOrFalseSetting},
     {"disable_detach_partition_for_zero_copy_replication", trueOrFalseSetting},
