@@ -4600,6 +4600,56 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 fuzz_rand() % (static_cast<int>(ASTSelectIntersectExceptQuery::Operator::INTERSECT_DISTINCT) + 1));
         }
         fuzz(with_intersect_except->children);
+        /// Combine with an extra cloned-and-fuzzed operand through a random one of the three
+        /// set operations: `A EXCEPT B` can become `A EXCEPT B EXCEPT B'` (flat append when
+        /// the rolled operator matches the node's own), `(A EXCEPT B) INTERSECT B'` or
+        /// `(A EXCEPT B) UNION B'` (wrapped otherwise; the formatter parenthesizes nested
+        /// set operations). `UNKNOWN` formats to an empty operator producing unparseable
+        /// output, so only combine when a real operator is set.
+        if (!with_intersect_except->children.empty()
+            && with_intersect_except->final_operator != ASTSelectIntersectExceptQuery::Operator::UNKNOWN && fuzz_rand() % 20 == 0)
+        {
+            auto & members = with_intersect_except->children;
+            ASTPtr extra = members[fuzz_rand() % members.size()]->clone();
+            fuzz(extra);
+
+            if (fuzz_rand() % 3 == 0)
+            {
+                /// UNION: wrap both operands into a new ASTSelectWithUnionQuery
+                auto list = make_intrusive<ASTExpressionList>();
+                list->children.push_back(ast);
+                list->children.push_back(extra);
+
+                auto union_query = make_intrusive<ASTSelectWithUnionQuery>();
+                union_query->union_mode = fuzz_rand() % 2 == 0 ? SelectUnionMode::UNION_ALL : SelectUnionMode::UNION_DISTINCT;
+                union_query->list_of_modes.assign(1, union_query->union_mode);
+                union_query->is_normalized = false;
+                union_query->list_of_selects = list;
+                union_query->children.push_back(union_query->list_of_selects);
+
+                debug_visited_nodes.erase(ast.get());
+                ast = union_query;
+            }
+            else
+            {
+                /// INTERSECT / EXCEPT with a random ALL / DISTINCT variant
+                const auto op = static_cast<ASTSelectIntersectExceptQuery::Operator>(
+                    1 + fuzz_rand() % static_cast<int>(ASTSelectIntersectExceptQuery::Operator::INTERSECT_DISTINCT));
+                if (op == with_intersect_except->final_operator)
+                {
+                    members.push_back(extra);
+                }
+                else
+                {
+                    auto wrap = make_intrusive<ASTSelectIntersectExceptQuery>();
+                    wrap->final_operator = op;
+                    wrap->children.push_back(ast);
+                    wrap->children.push_back(extra);
+                    debug_visited_nodes.erase(ast.get());
+                    ast = wrap;
+                }
+            }
+        }
     }
     else if (auto * tables = typeid_cast<ASTTablesInSelectQuery *>(ast.get()))
     {
@@ -5496,10 +5546,13 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         }
         fuzz(alter_query->children);
         /// Occasionally rewrite a single-command DELETE / UPDATE mutation into the lightweight form
-        if (fuzz_rand() % 10 == 0 && auto lightweight = alterMutationToLightweight(*alter_query))
+        if (fuzz_rand() % 10 == 0)
         {
-            debug_visited_nodes.erase(ast.get());
-            ast = lightweight;
+            if (auto lightweight = alterMutationToLightweight(*alter_query))
+            {
+                debug_visited_nodes.erase(ast.get());
+                ast = lightweight;
+            }
         }
     }
     else if (auto * alter_cmd = typeid_cast<ASTAlterCommand *>(ast.get()))
