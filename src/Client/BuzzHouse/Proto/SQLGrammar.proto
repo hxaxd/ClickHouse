@@ -507,11 +507,12 @@ message SQLFuncCall {
         Resample = 8;
         ArgMin = 9;
         ArgMax = 10;
+        Tuple = 11;
         /// Not deterministic maybe?
-        SimpleState = 11;
-        State = 12;
-        Merge = 13;
-        MergeState = 14;
+        SimpleState = 12;
+        State = 13;
+        Merge = 14;
+        MergeState = 15;
     }
     required SQLFuncName func = 1;
     repeated AggregateCombinator combinators = 2;

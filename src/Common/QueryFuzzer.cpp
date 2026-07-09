@@ -4647,7 +4647,7 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 {
                     /// Add or remove a single aggregate combinator suffix
                     static const Strings combinators
-                        = {"If", "Array", "State", "SimpleState", "Merge", "ForEach", "ArgMin", "ArgMax", "Map"};
+                        = {"If", "Array", "State", "SimpleState", "Merge", "ForEach", "ArgMin", "ArgMax", "Map", "Tuple"};
                     const String & combo = combinators[fuzz_rand() % combinators.size()];
                     if (endsWith(fn->name, combo))
                     {
@@ -4674,6 +4674,20 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                                 {
                                     if (ASTPtr key = getRandomColumnLike())
                                         fn->arguments->children.push_back(std::move(key));
+                                }
+                                /// When adding Tuple: the combinator requires every argument to be a Tuple
+                                else if (c == "Tuple")
+                                {
+                                    for (auto & arg : fn->arguments->children)
+                                    {
+                                        if (fuzz_rand() % 4 == 0)
+                                        {
+                                            if (ASTPtr r = getRandomColumnLike())
+                                                arg = std::move(r);
+                                        }
+                                        else
+                                            arg = makeASTFunction("tuple", arg);
+                                    }
                                 }
                             }
                         };
