@@ -120,6 +120,15 @@ static String formatCodecChoices(RandomGenerator & rg, const DB::Strings & choic
             res += rg.nextBool() ? "bit" : "byte";
             res += "')";
         }
+        else if (choices[i] == "ALP" && rg.nextBool())
+        {
+            /// Encoding variant: AUTO (sample and pick), STD (integerization) or RD (real doubles).
+            /// Must be a bare identifier, not a string literal.
+            static const DB::Strings alp_variants = {"AUTO", "STD", "RD"};
+            res += "(";
+            res += rg.pickRandomly(alp_variants);
+            res += ")";
+        }
     }
     return res;
 }

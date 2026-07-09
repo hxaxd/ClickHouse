@@ -1838,6 +1838,13 @@ void QueryFuzzer::fuzzCodecFunction(ASTFunction & codec_fn)
     else if (chosen == "T64" && fuzz_rand() % 2 == 0)
         codec_fn.arguments->children.push_back(
             makeASTFunction("T64", make_intrusive<ASTLiteral>(String(fuzz_rand() % 2 == 0 ? "bit" : "byte"))));
+    else if (chosen == "ALP" && fuzz_rand() % 2 == 0)
+    {
+        /// Optional encoding variant; must be a bare identifier, not a literal.
+        static const char * alp_variants[] = {"AUTO", "STD", "RD"};
+        codec_fn.arguments->children.push_back(
+            makeASTFunction("ALP", make_intrusive<ASTIdentifier>(String(alp_variants[fuzz_rand() % std::size(alp_variants)]))));
+    }
     else
         codec_fn.arguments->children.push_back(makeASTFunction(chosen));
 }
