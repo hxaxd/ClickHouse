@@ -896,6 +896,13 @@ void FuzzConfig::loadServerConfigurations()
         this->in_out_formats,
         "input and output formats",
         R"(SELECT "name" FROM "system"."formats" WHERE "is_input" = 1 AND "is_output" = 1)");
+    if (this->in_formats.empty() || this->out_formats.empty() || this->in_out_formats.empty())
+    {
+        throw DB::Exception(
+            DB::ErrorCodes::BUZZHOUSE,
+            "No {} formats were loaded from the server; cannot continue fuzzing",
+            this->in_formats.empty() ? "input" : (this->out_formats.empty() ? "output" : "input and output"));
+    }
     loadServerSettings<String>(
         this->storage_policies, "storage policies", R"(SELECT DISTINCT "policy_name" FROM "system"."storage_policies")");
     loadServerSettings<String>(
