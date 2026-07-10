@@ -3021,6 +3021,15 @@ void StatementGenerator::generateNextCreateDictionary(RandomGenerator & rg, Crea
         sv->set_property("SIZE_IN_CELLS");
         sv->set_value(std::to_string(rg.randomInt<uint64_t>(0, UINT32_C(10) * UINT32_C(1024) * UINT32_C(1024))));
     }
+    else if (is_polygon)
+    {
+        /// SELECT * from a polygon dictionary is UNSUPPORTED_METHOD without this
+        svs = svs ? svs : layout->mutable_setting_values();
+        SetValue * sv = svs->has_set_value() ? svs->add_other_values() : svs->mutable_set_value();
+
+        sv->set_property("STORE_POLYGON_KEY_COLUMN");
+        sv->set_value("1");
+    }
 
     /// Add Primary Key
     flatTableColumnPath(flat_tuple | flat_nested | flat_json | skip_nested_node, next.cols, [](const SQLColumn &) { return true; });

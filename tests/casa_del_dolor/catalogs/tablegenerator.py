@@ -159,8 +159,13 @@ class LakeTableGenerator:
                 or "delta.identity.start" in field.metadata
                 or (field.name in table.columns and table.columns[field.name].generated)
             )
+            prev = table.columns.get(field.name)
             new_columns[field.name] = SparkColumn(
-                field.name, field.dataType, field.nullable, generated
+                field.name,
+                field.dataType,
+                field.nullable,
+                generated,
+                prev.clickhouse_type if prev else "",
             )
         table.columns = new_columns
         table.check_constraints.clear()
@@ -389,7 +394,7 @@ class LakeTableGenerator:
                 f"{val['name']} {str_type}{'' if nullable else ' NOT NULL'}{generated}{col_comment}"
             )
             columns_spark[val["name"]] = SparkColumn(
-                val["name"], spark_type, nullable, len(generated) > 0
+                val["name"], spark_type, nullable, len(generated) > 0, next_ch_type
             )
             first = False
         ddl += ",".join(columns_def)
@@ -1703,9 +1708,10 @@ class PaimonTableGenerator(LakeTableGenerator):
             ):
                 properties.pop(key, None)
         if properties.get("merge-engine") == "first-row":
-            # Paimon rejects a sequence field on the 'first-row' merge engine, and only
-            # 'none' and 'lookup' changelog producers are supported with it
+            # Paimon rejects a sequence field and deletion vectors on the 'first-row' merge
+            # engine, and only 'none' and 'lookup' changelog producers are supported with it
             properties.pop("sequence.field", None)
+            properties.pop("deletion-vectors.enabled", None)
             if properties.get("changelog-producer") not in (None, "none", "lookup"):
                 properties["changelog-producer"] = random.choice(["none", "lookup"])
         if (
@@ -1730,6 +1736,10 @@ class PaimonTableGenerator(LakeTableGenerator):
         # without a fixed 'bucket') alike, so require a fixed bucket here.
         if "full-compaction.delta-commits" in properties and "bucket" not in properties:
             del properties["full-compaction.delta-commits"]
+        # write-only installs NoopCompactManager, but full-compaction.delta-commits makes the
+        # writer trigger a guaranteed compaction on commit -> every INSERT fails
+        if properties.get("write-only") == "true":
+            properties.pop("full-compaction.delta-commits", None)
         for min_key, max_key in (
             ("snapshot.num-retained.min", "snapshot.num-retained.max"),
             ("compaction.min.file-num", "compaction.max.file-num"),

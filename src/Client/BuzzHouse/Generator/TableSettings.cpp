@@ -1274,6 +1274,15 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
     auto icebergTableSettings = dataLakeSettings;
     icebergTableSettings.insert(icebergTableOnlySettings.begin(), icebergTableOnlySettings.end());
 
+    /// Local lake engines get absolute dolor-managed paths; with a `disk` setting the server
+    /// resolves the path against that disk and rejects absolute paths (BAD_ARGUMENTS)
+    auto dataLakeLocalSettings = dataLakeSettings;
+    auto icebergLocalTableSettings = icebergTableSettings;
+    auto paimonLocalSettings = paimonSettings;
+    dataLakeLocalSettings.erase("disk");
+    icebergLocalTableSettings.erase("disk");
+    paimonLocalSettings.erase("disk");
+
     allTableSettings.insert(
         {{MergeTree, mergeTreeTableSettings},
          {ReplacingMergeTree, mergeTreeTableSettings},
@@ -1303,13 +1312,13 @@ void loadFuzzerTableSettings(const FuzzConfig & fc)
          {Hudi, {}},
          {DeltaLakeS3, dataLakeSettings},
          {DeltaLakeAzure, dataLakeSettings},
-         {DeltaLakeLocal, dataLakeSettings},
+         {DeltaLakeLocal, dataLakeLocalSettings},
          {IcebergS3, icebergTableSettings},
          {IcebergAzure, icebergTableSettings},
-         {IcebergLocal, icebergTableSettings},
+         {IcebergLocal, icebergLocalTableSettings},
          {PaimonS3, paimonSettings},
          {PaimonAzure, paimonSettings},
-         {PaimonLocal, paimonSettings},
+         {PaimonLocal, paimonLocalSettings},
          {Merge, {}},
          {Distributed, distributedTableSettings},
          {Dictionary, {}},

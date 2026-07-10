@@ -36,6 +36,11 @@ from integration.helpers.client import Client
 # this literal, so it cannot collide with a real value.
 _NULL_SENTINEL = "<NULL>"
 
+# ClickHouse unsigned and 128/256-bit integers have no Spark equivalent: they are clamped
+# to BIGINT/DECIMAL on the lake side, so out-of-range values wrap and the engines print
+# different strings for the same stored bytes. Matched anywhere in the type (Array, Nullable...).
+_LOSSY_CH_INT_RE = re.compile(r"\b(?:UInt(?:64|128|256)|Int128|Int256)\b")
+
 
 class SparkAndClickHouseCheck:
 
@@ -170,6 +175,7 @@ class SparkAndClickHouseCheck:
                 v
                 for v in table.columns.values()
                 if self._check_type_valid_for_comparison(v.spark_type)
+                and not _LOSSY_CH_INT_RE.search(v.clickhouse_type)
             ]
             if len(order_by_cols) == 0:
                 self.logger.info(
