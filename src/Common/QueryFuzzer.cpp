@@ -1264,6 +1264,14 @@ void QueryFuzzer::fuzzTableStorage(ASTStorage & storage)
             arguments->children.clear();
     }
 
+    /// Swap among the argument-free small engines (no key clauses either, so any member is
+    /// valid for any other). Set additionally exercises the read-rejection paths.
+    static const std::unordered_set<String> small_engines = {"Log", "Memory", "Null", "Set", "StripeLog", "TinyLog"};
+    if (fuzz_rand() % 20 == 0 && small_engines.contains(engine_name))
+    {
+        engine_name = pickRandomly(fuzz_rand, small_engines);
+    }
+
     /// For MergeTree family engines, inject hot table settings with low probability.
     if (!endsWith(engine_name, "MergeTree"))
         return;
@@ -1603,21 +1611,66 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         }
     }
 
-    /// Toggle CREATE ↔ CREATE OR REPLACE
-    if (fuzz_rand() % 30 == 0)
-        create.create_or_replace = !create.create_or_replace;
+    /// Cycle the replace form: CREATE / REPLACE / CREATE OR REPLACE for tables, CREATE /
+    /// CREATE OR REPLACE for views and dictionaries. Enabling any of them clears
+    /// IF NOT EXISTS, which does not parse together with them.
+    if (!create.attach && !create.isTemporary() && fuzz_rand() % 30 == 0)
+    {
+        if (create.isView())
+        {
+            create.replace_view = !create.replace_view;
+            if (create.replace_view)
+                create.if_not_exists = false;
+        }
+        else
+        {
+            const int form = create.is_dictionary ? 2 * (fuzz_rand() % 2) : fuzz_rand() % 3;
+            create.replace_table = form > 0;
+            create.create_or_replace = form == 2;
+            if (form > 0)
+                create.if_not_exists = false;
+        }
+    }
 
-    /// Toggle IF NOT EXISTS
-    if (fuzz_rand() % 30 == 0)
+    /// Toggle IF NOT EXISTS (does not parse together with the replace forms)
+    if (!create.replace_table && !create.create_or_replace && !create.replace_view && fuzz_rand() % 30 == 0)
         create.if_not_exists = !create.if_not_exists;
 
-    /// Toggle EMPTY: CREATE ... EMPTY AS SELECT skips inserting the initial data
+    /// Toggle EMPTY: CREATE ... EMPTY AS SELECT skips inserting the initial data.
+    /// EMPTY and CLONE are mutually exclusive in the parser.
     if (create.select && fuzz_rand() % 20 == 0)
+    {
         create.is_create_empty = !create.is_create_empty;
+        if (create.is_create_empty)
+            create.is_clone_as = false;
+    }
 
     /// Toggle AS <table> ↔ CLONE AS <table> (CLONE requires a source table of the same engine family)
     if (!create.as_table.empty() && fuzz_rand() % 20 == 0)
+    {
         create.is_clone_as = !create.is_clone_as;
+        if (create.is_clone_as)
+            create.is_create_empty = false;
+    }
+
+    /// VIEW -> MATERIALIZED VIEW, one way only: the reverse would render stale MV clauses, and
+    /// TEMPORARY MATERIALIZED VIEW does not parse. Without ENGINE / TO the flip exercises the
+    /// inner-target validation.
+    if (create.is_ordinary_view && !create.storage && !create.isTemporary() && fuzz_rand() % 50 == 0)
+    {
+        create.is_ordinary_view = false;
+        create.is_materialized_view = true;
+    }
+
+    /// CREATE VIEW v (a, b) AS ...: drop or shuffle the column aliases
+    if (create.aliases_list)
+    {
+        auto & als = create.aliases_list->children;
+        if (als.size() > 1 && fuzz_rand() % 50 == 0)
+            als.erase(als.begin() + fuzz_rand() % als.size());
+        if (als.size() > 1 && fuzz_rand() % 50 == 0)
+            std::shuffle(als.begin(), als.end(), fuzz_rand);
+    }
 
     /// Fuzz an existing COMMENT literal or add one — exercises metadata escaping and persistence
     if (create.comment)
@@ -3238,6 +3291,60 @@ void QueryFuzzer::fuzzExpressionList(ASTExpressionList & expr_list)
                 /// optionally with APPLY/EXCEPT/REPLACE transformers attached.
                 new_child = makeFuzzedAsteriskLikeMatcher();
             }
+            else if (auto * ident = typeid_cast<ASTIdentifier *>(child.get()); ident && fuzz_rand() % 250 == 0)
+            {
+                /// Rewrite a column reference into one of its potential subcolumn accessors
+                /// (typeid_cast is exact, so ASTTableIdentifier / ASTQueryParameter are left alone).
+                static const Strings subcolumn_names = {"keys", "null", "size0", "values"};
+                const String subcolumn = pickRandomly(fuzz_rand, subcolumn_names);
+                switch (fuzz_rand() % 5)
+                {
+                    case 0: {
+                        /// Compound identifier form: `c` -> `c.null`, resolved as a subcolumn
+                        auto parts = ident->name_parts;
+                        parts.push_back(subcolumn);
+                        new_child = make_intrusive<ASTIdentifier>(std::move(parts));
+                        break;
+                    }
+                    case 1:
+                        /// Tuple element access: `c` -> `c.1` / `c.2` / `c.3`
+                        new_child = makeASTFunction(
+                            "tupleElement", child->clone(), make_intrusive<ASTLiteral>(static_cast<UInt64>(1 + fuzz_rand() % 3)));
+                        break;
+                    case 2: {
+                        /// Array index / Map key access: `c[N]`; 0 exercises the invalid-index
+                        /// path and -1 the from-the-end path
+                        static const std::vector<Int64> indexes = {-1, 0, 1, 2};
+                        new_child = makeASTFunction(
+                            "arrayElement", child->clone(), make_intrusive<ASTLiteral>(indexes[fuzz_rand() % indexes.size()]));
+                        break;
+                    }
+                    case 3: {
+                        /// JSON dynamic-path access: `j.a` / `j.k0.k1`; missing JSON paths read as NULL
+                        static const Strings json_paths = {"a", "b", "k0", "k1"};
+                        auto parts = ident->name_parts;
+                        parts.push_back(pickRandomly(fuzz_rand, json_paths));
+                        if (fuzz_rand() % 2 == 0)
+                            parts.push_back(pickRandomly(fuzz_rand, json_paths));
+                        new_child = make_intrusive<ASTIdentifier>(std::move(parts));
+                        break;
+                    }
+                    default:
+                        /// Function form: the simple accessors, plus the JSON sub-object (`^a`) and
+                        /// typed-path (`a.:Int64`) forms, which are only special as getSubcolumn strings
+                        if (fuzz_rand() % 2 == 0)
+                        {
+                            static const Strings json_special = {"^a", "^b", "a.:Int64", "a.b.:String"};
+                            new_child = makeASTFunction(
+                                "getSubcolumn", child->clone(), make_intrusive<ASTLiteral>(pickRandomly(fuzz_rand, json_special)));
+                        }
+                        else
+                        {
+                            new_child = makeASTFunction("getSubcolumn", child->clone(), make_intrusive<ASTLiteral>(subcolumn));
+                        }
+                        break;
+                }
+            }
             else if (fuzz_rand() % 1500 == 0 && current_ast_depth < 80)
             {
                 /// Wrap child in a scalar subquery (SELECT child)
@@ -3400,6 +3507,7 @@ static const auto identifier_lambda = [](std::pair<std::string, ASTPtr> & p)
     return id && !id->name_parts.empty() && !id->isParam();
 };
 
+static const Strings in_variants = {"in", "notIn", "globalIn", "globalNotIn", "nullIn", "notNullIn", "globalNullIn", "globalNotNullIn"};
 
 ASTPtr QueryFuzzer::generatePredicate()
 {
@@ -3439,8 +3547,13 @@ ASTPtr QueryFuzzer::generatePredicate()
                 }
                 else if (nprob == 1 && !table_like.empty() && current_ast_depth < 80)
                 {
-                    /// col IN/NOT IN/globalIn/globalNotIn (subquery), or EXISTS (subquery)
-                    static const Strings subquery_variants = {"in", "notIn", "globalIn", "globalNotIn", "exists"};
+                    /// col IN (subquery) using any IN-family operator, or EXISTS (subquery)
+                    static const Strings subquery_variants = []
+                    {
+                        Strings res = in_variants;
+                        res.emplace_back("exists");
+                        return res;
+                    }();
                     for (size_t att = 0; att < 10; ++att)
                     {
                         const auto & entry = table_like[fuzz_rand() % table_like.size()];
@@ -3457,8 +3570,7 @@ ASTPtr QueryFuzzer::generatePredicate()
                 }
                 else if (nprob == 2)
                 {
-                    /// col IN (expr1, expr2, ...) or col NOT IN (...) with a literal tuple
-                    static const Strings in_tuple_variants = {"in", "notIn", "globalIn", "globalNotIn"};
+                    /// col IN (expr1, expr2, ...) using any IN-family operator, with a literal tuple
                     auto tuple_func = make_intrusive<ASTFunction>();
                     tuple_func->name = "tuple";
                     tuple_func->arguments = make_intrusive<ASTExpressionList>();
@@ -3470,7 +3582,7 @@ ASTPtr QueryFuzzer::generatePredicate()
                         std::advance(rand_col, fuzz_rand() % column_like.size());
                         tuple_func->arguments->children.push_back(rand_col->second->clone());
                     }
-                    next_condition = makeASTFunction(in_tuple_variants[fuzz_rand() % in_tuple_variants.size()], expression_1, tuple_func);
+                    next_condition = makeASTFunction(in_variants[fuzz_rand() % in_variants.size()], expression_1, tuple_func);
                 }
                 else if (nprob == 3 && !column_like.empty())
                 {
@@ -3931,8 +4043,8 @@ static const std::unordered_set<String> higher_order_map_funcs = {
 static const std::vector<std::unordered_set<String>> & swapFuncs
     = { /// String pattern matching operators
         {"ilike", "like", "match", "notILike", "notLike"},
-        /// Set membership operators
-        {"globalIn", "globalNotIn", "in", "notIn"},
+        /// Set membership operators (the shared IN family list)
+        std::unordered_set<String>(in_variants.begin(), in_variants.end()),
         /// Null predicate and conversion functions
         {"assumeNotNull", "isNotNull", "isNull", "isNullable", "isZeroOrNull", "toNullable"},
         /// Value selection / clamping / null-coalescing
@@ -4409,13 +4521,53 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         {"currentProfiles", "currentRoles", "defaultProfiles", "defaultRoles", "enabledProfiles", "enabledRoles"},
         /// Block introspection (no arguments → number); breaks assumptions about
         /// block boundaries, sparse blocks and virtual columns
-        {"blockNumber", "blockSize", "rowNumberInAllBlocks", "rowNumberInBlock"}};
+        {"blockNumber", "blockSize", "rowNumberInAllBlocks", "rowNumberInBlock"},
+        /// Dictionary attribute accessors (dict, attr, key → value); the typed variants
+        /// additionally validate the attribute type, `dictGetAll` requires a regexp tree layout
+        {"dictGet",
+         "dictGetAll",
+         "dictGetDate",
+         "dictGetDateTime",
+         "dictGetFloat32",
+         "dictGetFloat64",
+         "dictGetIPv4",
+         "dictGetIPv6",
+         "dictGetInt16",
+         "dictGetInt32",
+         "dictGetInt64",
+         "dictGetInt8",
+         "dictGetOrNull",
+         "dictGetString",
+         "dictGetUInt16",
+         "dictGetUInt32",
+         "dictGetUInt64",
+         "dictGetUInt8",
+         "dictGetUUID"},
+        /// Same accessors with an explicit fallback (dict, attr, key, default → value)
+        {"dictGetDateOrDefault",
+         "dictGetDateTimeOrDefault",
+         "dictGetFloat32OrDefault",
+         "dictGetFloat64OrDefault",
+         "dictGetIPv4OrDefault",
+         "dictGetIPv6OrDefault",
+         "dictGetInt16OrDefault",
+         "dictGetInt32OrDefault",
+         "dictGetInt64OrDefault",
+         "dictGetInt8OrDefault",
+         "dictGetOrDefault",
+         "dictGetStringOrDefault",
+         "dictGetUInt16OrDefault",
+         "dictGetUInt32OrDefault",
+         "dictGetUInt64OrDefault",
+         "dictGetUInt8OrDefault",
+         "dictGetUUIDOrDefault"},
+        /// Dictionary key probes and hierarchy walks (dict, key[, level/ancestor key]);
+        /// the hierarchy functions additionally require a hierarchical layout
+        {"dictGetChildren", "dictGetDescendants", "dictGetHierarchy", "dictHas", "dictIsIn"}};
 
-/// Lightweight `DELETE FROM` / `UPDATE` and the `ALTER TABLE ... DELETE / UPDATE` mutations
-/// carry the same payload (table, predicate, `IN PARTITION`, `SET` assignments) but execute
-/// through different pipelines: classic mutations vs the `_row_exists` mask and patch parts.
-/// Rewriting one form into the other feeds identical expressions through both pipelines.
-/// The lightweight `SETTINGS` clause has no `ALTER` counterpart and is dropped.
+/// Rewrite a lightweight `DELETE FROM` / `UPDATE` into the equivalent `ALTER TABLE` mutation,
+/// feeding the same payload through the other pipeline; the lightweight `SETTINGS` clause has
+/// no `ALTER` counterpart and is dropped.
 static ASTPtr lightweightToAlterMutation(
     const ASTQueryWithTableAndOutput & source,
     const String & cluster,
@@ -5306,13 +5458,9 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                                                  : Field(static_cast<UInt64>(fuzz_rand() % 1001));
                 select->setExpression(ASTSelectQuery::Expression::LIMIT_BY_OFFSET, make_intrusive<ASTLiteral>(val));
             }
-            /// Toggle LIMIT BY ALL (limits by every selected column instead of an explicit list).
-            /// The parser represents `LIMIT n BY ALL` as `limit_by_all = true` plus an *empty*
-            /// LIMIT_BY list, and explicit keys as `limit_by_all = false` plus a non-empty list;
-            /// `ASTSelectQuery::formatImpl` renders ` ALL` only in the first case and the key list
-            /// only in the second. The list must therefore be kept in sync with the flag: flipping
-            /// only the flag would format `LIMIT n BY` with no keys (a syntax error) when switching
-            /// to explicit, and leave stale, unrendered keys attached when switching to ALL.
+            /// Toggle LIMIT BY ALL. The flag and the LIMIT_BY list must stay in sync
+            /// (ALL = flag + empty list, explicit = no flag + non-empty list): flipping only
+            /// the flag formats as `LIMIT n BY` with no keys, or leaves stale unrendered keys.
             if (fuzz_rand() % 50 == 0)
             {
                 if (select->isLimitByAll())
@@ -5469,9 +5617,58 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * drop_query = typeid_cast<ASTDropQuery *>(ast.get()))
     {
-        /// Cycle between DROP / DETACH / TRUNCATE
-        if (fuzz_rand() % 100 == 0)
+        /// Cycle between DROP / DETACH / TRUNCATE; the [ALL] TABLES form only parses for TRUNCATE
+        if (!drop_query->has_tables && !drop_query->has_all && fuzz_rand() % 100 == 0)
+        {
             drop_query->kind = static_cast<ASTDropQuery::Kind>(fuzz_rand() % 3);
+            /// TRUNCATE DICTIONARY / VIEW does not reparse
+            if (drop_query->kind == ASTDropQuery::Truncate)
+            {
+                drop_query->is_dictionary = false;
+                drop_query->is_view = false;
+            }
+        }
+        if (fuzz_rand() % 20 == 0)
+            drop_query->if_exists = !drop_query->if_exists;
+        /// DROP IF EMPTY: only drops when the table has no rows
+        if (drop_query->kind == ASTDropQuery::Drop && fuzz_rand() % 20 == 0)
+            drop_query->if_empty = !drop_query->if_empty;
+        /// Rotate the object kind (TABLE / VIEW / DICTIONARY); mismatches are rejected cleanly
+        if (drop_query->kind != ASTDropQuery::Truncate && drop_query->table && !drop_query->isTemporary() && fuzz_rand() % 20 == 0)
+        {
+            const int obj = fuzz_rand() % 3;
+            drop_query->is_dictionary = obj == 1;
+            drop_query->is_view = obj == 2;
+        }
+        /// DROP/DETACH TEMPORARY TABLE (mismatches with regular tables are rejected cleanly)
+        if (drop_query->kind != ASTDropQuery::Truncate && drop_query->table && !drop_query->is_dictionary && !drop_query->is_view
+            && fuzz_rand() % 20 == 0)
+            drop_query->setIsTemporary(!drop_query->isTemporary());
+        /// TRUNCATE [ALL] TABLES FROM: flip the ALL modifier and the LIKE pattern flags
+        if (drop_query->has_tables)
+        {
+            if (fuzz_rand() % 20 == 0)
+                drop_query->has_all = !drop_query->has_all;
+            if (!drop_query->like.empty())
+            {
+                if (fuzz_rand() % 20 == 0)
+                    drop_query->not_like = !drop_query->not_like;
+                if (fuzz_rand() % 20 == 0)
+                    drop_query->case_insensitive_like = !drop_query->case_insensitive_like;
+            }
+        }
+        /// Multi-table DROP t1, t2: remove, duplicate or shuffle entries (table identifiers
+        /// only — the formatter rejects anything else)
+        if (drop_query->database_and_tables)
+        {
+            auto & tabs = drop_query->database_and_tables->children;
+            if (tabs.size() > 1 && fuzz_rand() % 50 == 0)
+                tabs.erase(tabs.begin() + fuzz_rand() % tabs.size());
+            if (!tabs.empty() && fuzz_rand() % 50 == 0)
+                tabs.insert(tabs.begin() + fuzz_rand() % (tabs.size() + 1), tabs[fuzz_rand() % tabs.size()]->clone());
+            if (tabs.size() > 1 && fuzz_rand() % 50 == 0)
+                std::shuffle(tabs.begin(), tabs.end(), fuzz_rand);
+        }
         /// DETACH PERMANENTLY: object survives server restart without re-attach
         if (drop_query->kind == ASTDropQuery::Detach && fuzz_rand() % 30 == 0)
             drop_query->permanently = !drop_query->permanently;
@@ -5499,11 +5696,23 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             ch.erase(std::remove(ch.begin(), ch.end(), insert_query->settings_ast), ch.end());
             insert_query->settings_ast = {};
         }
+        /// Shuffle the explicit column list (permutes the column <-> value mapping)
+        if (insert_query->columns && insert_query->columns->children.size() > 1 && fuzz_rand() % 50 == 0)
+            std::shuffle(insert_query->columns->children.begin(), insert_query->columns->children.end(), fuzz_rand);
+        /// INSERT INTO FUNCTION: swap the table function within its group
+        fuzzTableFunctionName(insert_query->table_function);
         fuzz(insert_query->children);
     }
     else if (auto * delete_query = typeid_cast<ASTDeleteQuery *>(ast.get()))
     {
         fuzzMandatoryPredicate(delete_query->predicate, delete_query->children);
+        /// Drop IN PARTITION, widening the mutation to the whole table
+        if (delete_query->partition && fuzz_rand() % 20 == 0)
+        {
+            auto & ch = delete_query->children;
+            ch.erase(std::remove(ch.begin(), ch.end(), delete_query->partition), ch.end());
+            delete_query->partition = {};
+        }
         fuzz(delete_query->children);
         /// Occasionally rewrite into the equivalent `ALTER TABLE ... DELETE` mutation
         if (delete_query->table && delete_query->predicate && fuzz_rand() % 10 == 0)
@@ -5522,6 +5731,13 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             update_query->assignments->children.erase(
                 update_query->assignments->children.begin() + fuzz_rand() % update_query->assignments->children.size());
         }
+        /// Drop IN PARTITION, widening the mutation to the whole table
+        if (update_query->partition && fuzz_rand() % 20 == 0)
+        {
+            auto & ch = update_query->children;
+            ch.erase(std::remove(ch.begin(), ch.end(), update_query->partition), ch.end());
+            update_query->partition = {};
+        }
         fuzz(update_query->children);
         /// Occasionally rewrite into the equivalent `ALTER TABLE ... UPDATE` mutation
         if (update_query->table && update_query->predicate && update_query->assignments && fuzz_rand() % 10 == 0)
@@ -5538,11 +5754,18 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * alter_query = typeid_cast<ASTAlterQuery *>(ast.get()))
     {
-        /// Remove a random command from a multi-command ALTER (exercises partial-ALTER paths)
-        if (alter_query->command_list && alter_query->command_list->children.size() > 1 && fuzz_rand() % 100 == 0)
+        if (alter_query->command_list)
         {
             auto & cmds = alter_query->command_list->children;
-            cmds.erase(cmds.begin() + fuzz_rand() % cmds.size());
+            /// Remove a random command from a multi-command ALTER (exercises partial-ALTER paths)
+            if (cmds.size() > 1 && fuzz_rand() % 100 == 0)
+                cmds.erase(cmds.begin() + fuzz_rand() % cmds.size());
+            /// Duplicate a command; both copies are fuzzed independently below and may diverge
+            if (!cmds.empty() && fuzz_rand() % 100 == 0)
+                cmds.insert(cmds.begin() + fuzz_rand() % (cmds.size() + 1), cmds[fuzz_rand() % cmds.size()]->clone());
+            /// Permute the command order (commands within one ALTER are order-sensitive)
+            if (cmds.size() > 1 && fuzz_rand() % 100 == 0)
+                std::shuffle(cmds.begin(), cmds.end(), fuzz_rand);
         }
         fuzz(alter_query->children);
         /// Occasionally rewrite a single-command DELETE / UPDATE mutation into the lightweight form
@@ -5686,6 +5909,12 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             case ASTAlterCommand::DROP_PARTITION:
             case ASTAlterCommand::ATTACH_PARTITION:
             case ASTAlterCommand::DROP_DETACHED_PARTITION:
+            case ASTAlterCommand::FORGET_PARTITION:
+                /// DROP PARTITION <-> FORGET PARTITION carry the same payload (a bare partition)
+                if ((alter_cmd->type == ASTAlterCommand::DROP_PARTITION || alter_cmd->type == ASTAlterCommand::FORGET_PARTITION)
+                    && fuzz_rand() % 20 == 0)
+                    alter_cmd->type = alter_cmd->type == ASTAlterCommand::DROP_PARTITION ? ASTAlterCommand::FORGET_PARTITION
+                                                                                         : ASTAlterCommand::DROP_PARTITION;
                 if (fuzz_rand() % 20 == 0)
                     alter_cmd->detach = !alter_cmd->detach;
                 if (fuzz_rand() % 20 == 0)
@@ -5749,12 +5978,65 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                     replaceCommandMember(
                         alter_cmd->type == ASTAlterCommand::MODIFY_ORDER_BY ? alter_cmd->order_by : alter_cmd->sample_by,
                         getRandomColumnLike());
+                /// MODIFY SAMPLE BY -> REMOVE SAMPLE BY (the stale sample_by child is not rendered)
+                else if (alter_cmd->type == ASTAlterCommand::MODIFY_SAMPLE_BY && fuzz_rand() % 20 == 0)
+                    alter_cmd->type = ASTAlterCommand::REMOVE_SAMPLE_BY;
+                break;
+            case ASTAlterCommand::REMOVE_SAMPLE_BY:
+                /// REMOVE SAMPLE BY -> MODIFY SAMPLE BY with a synthesized key
+                if (fuzz_rand() % 20 == 0)
+                {
+                    if (!alter_cmd->sample_by)
+                        if (ASTPtr new_sample = getRandomColumnLike())
+                            alter_cmd->sample_by = alter_cmd->children.emplace_back(std::move(new_sample)).get();
+                    if (alter_cmd->sample_by)
+                        alter_cmd->type = ASTAlterCommand::MODIFY_SAMPLE_BY;
+                }
                 break;
             case ASTAlterCommand::MODIFY_TTL:
                 /// Swap the whole TTL expression; a bare column is an invalid TTL (needs Date/DateTime)
                 /// and hits the TTL-expression validation path.
                 if (fuzz_rand() % 20 == 0)
                     replaceCommandMember(alter_cmd->ttl, getRandomColumnLike());
+                /// MODIFY TTL -> REMOVE TTL (the stale ttl child is not rendered)
+                else if (fuzz_rand() % 20 == 0)
+                    alter_cmd->type = ASTAlterCommand::REMOVE_TTL;
+                break;
+            case ASTAlterCommand::REMOVE_TTL:
+                /// REMOVE TTL -> MODIFY TTL with a synthesized (usually invalid) TTL expression
+                if (fuzz_rand() % 20 == 0)
+                {
+                    if (!alter_cmd->ttl)
+                        if (ASTPtr new_ttl = getRandomColumnLike())
+                            alter_cmd->ttl = alter_cmd->children.emplace_back(std::move(new_ttl)).get();
+                    if (alter_cmd->ttl)
+                        alter_cmd->type = ASTAlterCommand::MODIFY_TTL;
+                }
+                break;
+            case ASTAlterCommand::APPLY_DELETED_MASK:
+            case ASTAlterCommand::APPLY_PATCHES:
+            case ASTAlterCommand::REWRITE_PARTS:
+                /// All three carry the same payload (an optional IN PARTITION), so rotate freely
+                if (fuzz_rand() % 10 == 0)
+                {
+                    static constexpr ASTAlterCommand::Type partition_scoped[]
+                        = {ASTAlterCommand::APPLY_DELETED_MASK, ASTAlterCommand::APPLY_PATCHES, ASTAlterCommand::REWRITE_PARTS};
+                    alter_cmd->type = partition_scoped[fuzz_rand() % std::size(partition_scoped)];
+                }
+                break;
+            case ASTAlterCommand::MODIFY_SQL_SECURITY:
+                /// Cycle the security type; DEFINER without an explicit definer still formats fine
+                if (alter_cmd->sql_security && fuzz_rand() % 5 == 0)
+                {
+                    if (auto * sec = alter_cmd->sql_security->as<ASTSQLSecurity>())
+                    {
+                        static constexpr SQLSecurityType security_types[]
+                            = {SQLSecurityType::INVOKER, SQLSecurityType::DEFINER, SQLSecurityType::NONE};
+                        sec->type = security_types[fuzz_rand() % std::size(security_types)];
+                        if (fuzz_rand() % 3 == 0)
+                            sec->is_definer_current_user = !sec->is_definer_current_user;
+                    }
+                }
                 break;
             case ASTAlterCommand::MODIFY_COMMENT:
                 /// Swap the comment string in place (empty/nasty comments exercise metadata handling).
@@ -5775,14 +6057,65 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         if (fuzz_rand() % 20 == 0)
         {
             optimize_query->deduplicate = !optimize_query->deduplicate;
+            /// The formatter renders ` BY cols` even without DEDUPLICATE, which does not reparse
+            if (!optimize_query->deduplicate && optimize_query->deduplicate_by_columns)
+            {
+                auto & ch = optimize_query->children;
+                ch.erase(std::remove(ch.begin(), ch.end(), optimize_query->deduplicate_by_columns), ch.end());
+                optimize_query->deduplicate_by_columns = {};
+            }
         }
         if (fuzz_rand() % 20 == 0)
         {
             optimize_query->cleanup = !optimize_query->cleanup;
         }
+        /// Toggle DRY RUN (executes the merge without committing the result)
+        if (fuzz_rand() % 20 == 0)
+        {
+            optimize_query->dry_run = !optimize_query->dry_run;
+        }
+        /// The parser requires PARTS after DRY RUN, so always synthesize a missing list
+        if (optimize_query->dry_run && !optimize_query->parts_list)
+        {
+            static const Strings part_names = {"all_1_1_0", "all_0_0_0", "20000101_1_1_0", "invalid_part"};
+            auto list = make_intrusive<ASTExpressionList>();
+            const size_t nparts = 1 + fuzz_rand() % 2;
+            for (size_t i = 0; i < nparts; ++i)
+                list->children.push_back(make_intrusive<ASTLiteral>(pickRandomly(fuzz_rand, part_names)));
+            optimize_query->parts_list = list;
+            optimize_query->children.push_back(optimize_query->parts_list);
+        }
+        /// The BY list only reparses as short identifiers or asterisk matchers, so shuffle or
+        /// drop entries instead of generic expression fuzzing
         if (optimize_query->deduplicate_by_columns && fuzz_rand() % 20 == 0)
         {
-            fuzz(optimize_query->deduplicate_by_columns);
+            auto & bycols = optimize_query->deduplicate_by_columns->children;
+            if (bycols.size() > 1 && fuzz_rand() % 2 == 0)
+                bycols.erase(bycols.begin() + fuzz_rand() % bycols.size());
+            else
+                std::shuffle(bycols.begin(), bycols.end(), fuzz_rand);
+        }
+        /// Synthesize DEDUPLICATE BY from short column identifiers in the pool
+        else if (optimize_query->deduplicate && !optimize_query->deduplicate_by_columns && fuzz_rand() % 20 == 0)
+        {
+            auto cols = make_intrusive<ASTExpressionList>();
+            for (const auto & entry : column_like)
+            {
+                const auto * id = typeid_cast<ASTIdentifier *>(entry.second.get());
+                if (id && id->isShort() && fuzz_rand() % 4 == 0)
+                {
+                    ASTPtr c = entry.second->clone();
+                    c->setAlias("");
+                    cols->children.push_back(std::move(c));
+                    if (cols->children.size() >= 3)
+                        break;
+                }
+            }
+            if (!cols->children.empty())
+            {
+                optimize_query->deduplicate_by_columns = cols;
+                optimize_query->children.push_back(optimize_query->deduplicate_by_columns);
+            }
         }
         /// Recurse into the partition expression — the generic fallback is never reached for
         /// ASTOptimizeQuery, so partition sub-expressions would otherwise go unfuzzed.
