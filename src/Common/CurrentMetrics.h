@@ -73,8 +73,8 @@ namespace CurrentMetrics
     class Increment
     {
     private:
-        std::atomic<Value> * what;
-        Value amount;
+        std::atomic<Value> * what{};
+        Value amount{};
 
         Increment(std::atomic<Value> * what_, Value amount_)
             : what(what_), amount(amount_)
@@ -87,7 +87,7 @@ namespace CurrentMetrics
             : Increment(&values[metric], amount_)
         {
             // in src/Core/tests/gtest_BackgroundSchedulePool.cpp we create pool as
-            // auto pool = BackgroundSchedulePool::create(4, 0, CurrentMetrics::end(), CurrentMetrics::end(), "tests");
+            // auto pool = BackgroundSchedulePool::create(4, 4, 0, CurrentMetrics::end(), CurrentMetrics::end(), "tests");
             // which leads as to creation of Increment with metric == CurrentMetrics::end()
             // actually this is not a real metric, however it is presented in CurrentMetrics::values array
             // so we are able to increment it and we should not assert here when metric == CurrentMetrics::end()

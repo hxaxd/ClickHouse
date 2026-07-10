@@ -8,8 +8,10 @@
 #include <Common/CurrentThread.h>
 #include <Common/ThreadStatus.h>
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX)
 #include <sys/epoll.h>
+#elif defined(OS_DARWIN)
+#include <Common/Epoll.h> /// EPOLLIN/EPOLLERR compatibility flags for the kqueue-backed Epoll
 #endif
 
 
@@ -63,10 +65,12 @@ int IProcessor::schedule()
     throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Method 'schedule' is not implemented for {} processor", getName());
 }
 
+#if defined(OS_LINUX) || defined(OS_DARWIN)
 std::tuple<int, uint32_t, Int64> IProcessor::scheduleForEvent()
 {
     return {schedule(), EPOLLIN | EPOLLERR, -1};
 }
+#endif
 
 IProcessor::PipelineUpdate IProcessor::updatePipeline()
 {

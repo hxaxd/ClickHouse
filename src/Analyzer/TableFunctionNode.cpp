@@ -37,8 +37,8 @@ void TableFunctionNode::resolve(TableFunctionPtr table_function_value, StoragePt
     storage_id = storage->getStorageID();
 
     const TableExpressionModifiers * modifiers = table_expression_modifiers ? &*table_expression_modifiers : nullptr;
-    storage_snapshot = storage->getStorageSnapshot(storage->getInMemoryMetadataPtr(context, false, modifiers), context);
-
+    const auto metadata_snapshot = storage->getInMemoryMetadataPtr(context, false, modifiers);
+    storage_snapshot = storage->getStorageSnapshot(metadata_snapshot, context);
     unresolved_arguments_indexes = std::move(unresolved_arguments_indexes_);
 }
 

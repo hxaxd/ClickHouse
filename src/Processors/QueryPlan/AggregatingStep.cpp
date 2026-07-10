@@ -216,9 +216,9 @@ ActionsDAG AggregatingStep::makeCreatingMissingKeysForGroupingSetDAG(
     ActionsDAG::NodeRawConstPtrs outputs;
     outputs.reserve(out_header.columns() + 1);
 
-    auto grouping_col = ColumnConst::create(ColumnUInt64::create(1, group), 0);
+    ColumnConst::Ptr grouping_col = ColumnConst::create(ColumnUInt64::create(1, group), 0);
     const auto * grouping_node = &dag.addColumn(
-        {ColumnPtr(std::move(grouping_col)), std::make_shared<DataTypeUInt64>(), "__grouping_set"});
+        std::move(grouping_col), std::make_shared<DataTypeUInt64>(), "__grouping_set");
 
     grouping_node = &dag.materializeNode(*grouping_node);
     outputs.push_back(grouping_node);
@@ -240,8 +240,8 @@ ActionsDAG AggregatingStep::makeCreatingMissingKeysForGroupingSetDAG(
             col.type->insertDefaultInto(*column_with_default);
             column_with_default->finalize();
 
-            auto column = ColumnConst::create(std::move(column_with_default), 0);
-            const auto * node = &dag.addColumn({ColumnPtr(std::move(column)), col.type, col.name});
+            ColumnConst::Ptr column = ColumnConst::create(std::move(column_with_default), 0);
+            const auto * node = &dag.addColumn(std::move(column), col.type, col.name);
             node = &dag.materializeNode(*node);
             outputs.push_back(node);
         }
@@ -335,6 +335,9 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
     const size_t max_threads = pipeline.getReadStreamCountWasReduced()
         ? std::min(params.max_threads, pipeline.getNumStreams())
         : params.max_threads;
+
+    /// Clear after use so it does not leak into downstream JOIN/UNION pipeline compositions.
+    pipeline.setReadStreamCountWasReduced(false);
 
     QueryPipelineProcessorsCollector collector(pipeline, this);
 
@@ -533,6 +536,7 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
                     aggregation_in_order_max_block_bytes / new_merge_threads,
                     many_data,
                     counter++,
+                    limit_hint,
                     nullptr // `dataflow_cache_updater` will be passed to `MergingAggregatedBucketTransform` below
                 );
             });
@@ -554,7 +558,8 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
                 transform_params,
                 group_by_sort_description,
                 max_block_size,
-                aggregation_in_order_max_block_bytes);
+                aggregation_in_order_max_block_bytes,
+                limit_hint);
 
             pipeline.addTransform(std::move(transform));
 
@@ -582,6 +587,7 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
                     header, transform_params,
                     sort_description_for_merging, group_by_sort_description,
                     max_block_size, aggregation_in_order_max_block_bytes,
+                    limit_hint,
                     dataflow_cache_updater);
             });
 
@@ -998,7 +1004,7 @@ QueryPlanStepPtr AggregatingStep::deserialize(Deserialization & ctx)
     if (ctx.input_headers.size() != 1)
         throw Exception(ErrorCodes::INCORRECT_DATA, "AggregatingStep must have one input stream");
 
-    UInt8 flags;
+    UInt8 flags = 0;
     readIntBinary(flags, ctx.in);
 
     bool final = bool(flags & 1);
@@ -1007,7 +1013,7 @@ QueryPlanStepPtr AggregatingStep::deserialize(Deserialization & ctx)
     bool has_grouping_sets = bool(flags & 8);
     bool has_stats_key = bool(flags & 16);
 
-    UInt64 num_keys;
+    UInt64 num_keys = 0;
     readVarUInt(num_keys, ctx.in);
     Names keys(num_keys);
     for (auto & key : keys)
@@ -1016,12 +1022,12 @@ QueryPlanStepPtr AggregatingStep::deserialize(Deserialization & ctx)
     GroupingSetsParamsList grouping_sets_params;
     if (has_grouping_sets)
     {
-        UInt64 num_groups;
+        UInt64 num_groups = 0;
         readVarUInt(num_groups, ctx.in);
         for (size_t group_num = 0; group_num < num_groups; ++group_num)
         {
             auto & grouping_set = grouping_sets_params.emplace_back();
-            UInt64 num_used_keys;
+            UInt64 num_used_keys = 0;
             readVarUInt(num_used_keys, ctx.in);
             grouping_set.used_keys.resize(num_used_keys);
             NameSet used_keys_set;
@@ -1039,7 +1045,7 @@ QueryPlanStepPtr AggregatingStep::deserialize(Deserialization & ctx)
     }
 
     AggregateDescriptions aggregates;
-    deserializeAggregateDescriptions(aggregates, ctx.in);
+    deserializeAggregateDescriptions(aggregates, ctx.in, ctx.max_type_complexity);
 
     UInt64 stats_key = 0;
     if (has_stats_key)
@@ -1131,6 +1137,7 @@ void AggregatingStep::setFinal(bool new_value)
     updateOutputHeader();
 }
 
+void registerAggregatingStep(QueryPlanStepRegistry & registry);
 void registerAggregatingStep(QueryPlanStepRegistry & registry)
 {
     registry.registerStep("Aggregating", AggregatingStep::deserialize);

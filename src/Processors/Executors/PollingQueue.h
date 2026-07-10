@@ -12,9 +12,9 @@
 namespace DB
 {
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_DARWIN)
 
-/// This queue is used to poll descriptors. Generally, just a wrapper over epoll.
+/// This queue is used to poll descriptors. Generally, just a wrapper over epoll (kqueue on macOS).
 class PollingQueue
 {
 public:
@@ -51,7 +51,7 @@ public:
 
 private:
     Epoll epoll;
-    int pipe_fd[2];
+    int pipe_fd[2]{};
     std::atomic_bool is_finished = false;
     std::unordered_map<Key, TaskData> tasks;
     Deadlines deadlines;

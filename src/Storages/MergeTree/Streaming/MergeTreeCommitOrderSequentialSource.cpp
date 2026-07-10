@@ -45,6 +45,7 @@
 #include <Core/Streaming/Settings.h>
 #include <Core/Streaming/StreamingVirtualColumns.h>
 
+#include <Common/ZooKeeper/ZooKeeperCommon.h>
 #include <Common/logger_useful.h>
 
 #include <algorithm>
@@ -562,6 +563,8 @@ IProcessor::Status MergeTreeCommitOrderSequentialSource::prepare()
 
 void MergeTreeCommitOrderSequentialSource::work()
 {
+    auto component_guard = Coordination::setCurrentComponent("MergeTreeCommitOrderSequentialSource::work");
+
     chassert(!pending_snapshot.has_value());
 
     subscription->drain();

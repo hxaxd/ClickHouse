@@ -16,11 +16,10 @@
 #include <Processors/Transforms/MergeSortingTransform.h>
 #include <Processors/Transforms/PartialSortingTransform.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
+#include <QueryPipeline/scatterByPartition.h>
 #include <Common/JSONBuilder.h>
 #include <Common/MemoryTrackerUtils.h>
 
-#include <Processors/ResizeProcessor.h>
-#include <Processors/Transforms/ScatterByPartitionTransform.h>
 
 #include <Processors/QueryPlan/Optimizations/RuntimeDataflowStatistics.h>
 #include <Common/scope_guard_safe.h>
@@ -111,7 +110,7 @@ namespace ErrorCodes
     extern const int LIMIT_EXCEEDED;
 }
 
-size_t getMaxBytesInQueryBeforeExternalSort(double max_bytes_ratio_before_external_sort)
+static size_t getMaxBytesInQueryBeforeExternalSort(double max_bytes_ratio_before_external_sort)
 {
     if (max_bytes_ratio_before_external_sort == 0.)
         return 0;
@@ -281,7 +280,9 @@ void SortingStep::addPerStreamLimitByIfNeeded(QueryPipelineBuilder & pipeline, c
 {
     if (limit_by_columns.empty() || pipeline.getNumStreams() <= 1)
         return;
-    if (!stream_sort_desc.hasPrefix(limit_by_columns))
+
+    auto sort_prefix = getCollationAwareSortPrefixInColumns(stream_sort_desc, limit_by_columns);
+    if (sort_prefix.size() != limit_by_columns.size())
         return;
 
     pipeline.addSimpleTransform(
@@ -289,7 +290,7 @@ void SortingStep::addPerStreamLimitByIfNeeded(QueryPipelineBuilder & pipeline, c
         {
             if (stream_type != QueryPipelineBuilder::StreamType::Main)
                 return nullptr;
-            return std::make_shared<LimitByTransform>(header, limit_by_group_length, 0, true, limit_by_columns);
+            return std::make_shared<LimitBySortedStreamTransform>(header, limit_by_group_length, 0, sort_prefix);
         });
 }
 
@@ -335,36 +336,7 @@ void SortingStep::scatterByPartitionIfNeeded(QueryPipelineBuilder& pipeline)
             key_columns.push_back(stream_header->getPositionByName(col.column_name));
         }
 
-        pipeline.transform([&](const OutputPortRawPtrs & ports)
-        {
-            Processors processors;
-            for (auto * port : ports)
-            {
-                auto scatter = std::make_shared<ScatterByPartitionTransform>(stream_header, threads, key_columns);
-                connect(*port, scatter->getInputs().front());
-                processors.push_back(scatter);
-            }
-            return processors;
-        });
-
-        if (streams > 1)
-        {
-            pipeline.transform([&](const OutputPortRawPtrs & ports)
-            {
-                Processors processors;
-                for (size_t i = 0; i < threads; ++i)
-                {
-                    size_t output_it = i;
-                    auto resize = std::make_shared<ResizeProcessor>(stream_header, streams, 1);
-                    auto & inputs = resize->getInputs();
-
-                    for (auto input_it = inputs.begin(); input_it != inputs.end(); output_it += threads, ++input_it)
-                        connect(*ports[output_it], *input_it);
-                    processors.push_back(resize);
-                }
-                return processors;
-            });
-        }
+        scatterByPartition(pipeline, threads, key_columns);
     }
 }
 
@@ -710,7 +682,7 @@ QueryPlanStepPtr SortingStep::deserialize(Deserialization & ctx)
     SortDescription result_description;
     deserializeSortDescription(result_description, ctx.in);
 
-    UInt64 partition_desc_size;
+    UInt64 partition_desc_size = 0;
     readVarUInt(partition_desc_size, ctx.in);
 
     if (partition_desc_size)
@@ -720,6 +692,7 @@ QueryPlanStepPtr SortingStep::deserialize(Deserialization & ctx)
         ctx.input_headers.front(), std::move(result_description), 0, std::move(sort_settings));
 }
 
+void registerSortingStep(QueryPlanStepRegistry & registry);
 void registerSortingStep(QueryPlanStepRegistry & registry)
 {
     registry.registerStep("Sorting", SortingStep::deserialize);

@@ -97,7 +97,7 @@ BlockIO InterpreterRenameQuery::executeToTables(const ASTRenameQuery & rename, c
                 continue;
         }
 
-        bool exchange_tables;
+        bool exchange_tables = false;
         if (rename.exchange)
         {
             exchange_tables = true;
@@ -112,6 +112,13 @@ BlockIO InterpreterRenameQuery::executeToTables(const ASTRenameQuery & rename, c
             exchange_tables = false;
             database_catalog.assertTableDoesntExist(StorageID(elem.to_database_name, elem.to_table_name), getContext());
         }
+
+        /// Run the caller's pre-swap check while still holding `ddl_guards`. If it
+        /// throws, the guards release via RAII, no rename happens, and the caller's
+        /// catch path runs. Skip when the destination doesn't exist — there is no
+        /// storage to check (this is a plain `RENAME TO new_name`, not an exchange).
+        if (pre_swap_check && exchange_tables)
+            pre_swap_check(StorageID(elem.to_database_name, elem.to_table_name));
 
         DatabasePtr database = database_catalog.getDatabase(elem.from_database_name);
         if (database->shouldReplicateQuery(getContext(), query_ptr))
@@ -278,6 +285,7 @@ void InterpreterRenameQuery::extendQueryLogElemImpl(QueryLogElement & elem, cons
     }
 }
 
+void registerInterpreterRenameQuery(InterpreterFactory & factory);
 void registerInterpreterRenameQuery(InterpreterFactory & factory)
 {
     auto create_fn = [] (const InterpreterFactory::Arguments & args)
