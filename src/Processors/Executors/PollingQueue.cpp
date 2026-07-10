@@ -3,10 +3,7 @@
 #if defined(OS_LINUX) || defined(OS_DARWIN)
 
 #include <Common/Exception.h>
-#include <Common/ErrnoException.h>
-#include <base/defines.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include <algorithm>
 
 #include <IO/WriteBufferFromString.h>
 #include <IO/Operators.h>
@@ -16,8 +13,6 @@ namespace DB
 
 namespace ErrorCodes
 {
-    extern const int CANNOT_OPEN_FILE;
-    extern const int CANNOT_READ_FROM_SOCKET;
     extern const int LOGICAL_ERROR;
 }
 
@@ -60,45 +55,10 @@ std::optional<PollingQueue::Key> PollingQueue::Deadlines::popExpired()
     return key;
 }
 
-std::optional<PollingQueue::Key> PollingQueue::Deadlines::popMin()
-{
-    if (queue.empty())
-        return std::nullopt;
-
-    auto it = queue.begin();
-    auto key = it->second;
-    queue.erase(it);
-    index.erase(key);
-    return key;
-}
-
 PollingQueue::PollingQueue()
 {
-#if defined(OS_LINUX)
-    if (-1 == pipe2(pipe_fd, O_NONBLOCK))
-        throw ErrnoException(ErrorCodes::CANNOT_OPEN_FILE, "Cannot create pipe");
-#else
-    /// macOS has no pipe2; create the pipe and set O_NONBLOCK on both ends.
-    if (-1 == pipe(pipe_fd))
-        throw ErrnoException(ErrorCodes::CANNOT_OPEN_FILE, "Cannot create pipe");
-    for (int pipe_end_fd : pipe_fd)
-    {
-        int flags = fcntl(pipe_end_fd, F_GETFL, 0);
-        if (-1 == flags || -1 == fcntl(pipe_end_fd, F_SETFL, flags | O_NONBLOCK))
-            throw ErrnoException(ErrorCodes::CANNOT_OPEN_FILE, "Cannot make pipe non-blocking");
-    }
-#endif
-
-    epoll.add(pipe_fd[0], pipe_fd);
-}
-
-PollingQueue::~PollingQueue()
-{
-    int err = 0;
-    err = close(pipe_fd[0]);  /// NOLINT(clang-analyzer-deadcode.DeadStores)
-    chassert(!err || errno == EINTR);
-    err = close(pipe_fd[1]);  /// NOLINT(clang-analyzer-deadcode.DeadStores)
-    chassert(!err || errno == EINTR);
+    epoll.add(finish_signal.fd(), &finish_signal);
+    epoll.add(timer_signal.getDescriptor(), &timer_signal);
 }
 
 void PollingQueue::addTask(size_t thread_number, void * data, int fd, uint32_t events, Int64 timeout_ms)
@@ -111,7 +71,10 @@ void PollingQueue::addTask(size_t thread_number, void * data, int fd, uint32_t e
     epoll.add(fd, data, events);
 
     if (timeout_ms >= 0)
+    {
         deadlines.arm(key, timeout_ms);
+        updateTimer();
+    }
 }
 
 PollingQueue::TaskData PollingQueue::popExpiredDeadlineTask()
@@ -127,26 +90,24 @@ PollingQueue::TaskData PollingQueue::popExpiredDeadlineTask()
     auto res = task_it->second;
     tasks.erase(task_it);
     epoll.remove(res.fd);
+    updateTimer();
     return res;
 }
 
-PollingQueue::TaskData PollingQueue::popMinDeadlineTask()
+void PollingQueue::updateTimer()
 {
-    auto min_key = deadlines.popMin();
-    if (!min_key)
-        return {};
+    auto next = deadlines.nextDeadline();
+    if (!next)
+    {
+        timer_signal.reset();
+        return;
+    }
 
-    auto task_it = tasks.find(min_key.value());
-    if (task_it == tasks.end())
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Min-deadline task {} missing from task map", *min_key);
-
-    auto res = task_it->second;
-    tasks.erase(task_it);
-    epoll.remove(res.fd);
-    return res;
+    auto us_until_deadline = std::chrono::duration_cast<std::chrono::microseconds>(*next - Clock::now()).count();
+    timer_signal.setRelative(std::max<int64_t>(1, us_until_deadline));
 }
 
-static std::string dumpTasks(const std::unordered_map<PollingQueue::Key, PollingQueue::TaskData> & tasks)
+std::string PollingQueue::dumpTasks() const
 {
     WriteBufferFromOwnString res;
     res << "Tasks = [";
@@ -164,70 +125,54 @@ static std::string dumpTasks(const std::unordered_map<PollingQueue::Key, Polling
 
 PollingQueue::TaskData PollingQueue::getTask(std::unique_lock<std::mutex> & lock, int timeout)
 {
-    if (is_finished)
-        return {};
-
-    if (auto expired_task = popExpiredDeadlineTask())
-        return expired_task;
-
-    /// We need to wait until next task with deadline will be ready.
-    int effective_timeout = timeout;
-    if (auto next = deadlines.nextDeadline())
+    while (true)
     {
-        auto ms_until_deadline = std::max<Int64>(0, std::chrono::duration_cast<std::chrono::milliseconds>(*next - Clock::now()).count());
-        if (timeout < 0 || ms_until_deadline < static_cast<Int64>(timeout))
-            effective_timeout = static_cast<int>(ms_until_deadline);
+        if (is_finished)
+            return {};
+
+        if (auto expired_task = popExpiredDeadlineTask())
+            return expired_task;
+
+        lock.unlock();
+
+        epoll_event event{};
+        event.data.ptr = nullptr;
+        size_t num_events = epoll.getManyReady(1, &event, timeout);
+
+        lock.lock();
+
+        if (num_events == 0)
+            return {};
+
+        if (event.data.ptr == &finish_signal)
+            return {};
+
+        if (event.data.ptr == &timer_signal)
+        {
+            timer_signal.drain();
+            updateTimer();
+            continue;
+        }
+
+        void * ptr = event.data.ptr;
+        Key key = reinterpret_cast<Key>(ptr);
+        auto it = tasks.find(key);
+        if (it == tasks.end())
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Task {} ({}) was not found in task queue: {}", key, ptr, dumpTasks());
+
+        auto res = it->second;
+        tasks.erase(it);
+        deadlines.cancel(key);
+        epoll.remove(res.fd);
+
+        return res;
     }
-
-    lock.unlock();
-
-    epoll_event event{};
-    event.data.ptr = nullptr;
-    size_t num_events = epoll.getManyReady(1, &event, effective_timeout);
-
-    lock.lock();
-
-    if (num_events == 0)
-    {
-        if (effective_timeout != timeout)
-            return popMinDeadlineTask();
-
-        return {};
-    }
-
-    if (event.data.ptr == pipe_fd)
-        return {};
-
-    void * ptr = event.data.ptr;
-    Key key = reinterpret_cast<Key>(ptr);
-    auto it = tasks.find(key);
-    if (it == tasks.end())
-    {
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Task {} ({}) was not found in task queue: {}",
-                        key, ptr, dumpTasks(tasks));
-    }
-
-    auto res = it->second;
-    tasks.erase(it);
-    deadlines.cancel(key);
-    epoll.remove(res.fd);
-
-    return res;
 }
 
 void PollingQueue::finish()
 {
     is_finished = true;
-
-    uint64_t buf = 0;
-    while (-1 == write(pipe_fd[1], &buf, sizeof(buf)))
-    {
-        if (errno == EAGAIN)
-            break;
-
-        if (errno != EINTR)
-            throw ErrnoException(ErrorCodes::CANNOT_READ_FROM_SOCKET, "Cannot write to pipe");
-    }
+    finish_signal.notify();
 }
 
 }
