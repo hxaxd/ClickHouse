@@ -2423,7 +2423,7 @@ void StatementGenerator::getNextTableEngine(RandomGenerator & rg, bool use_exter
         {
             this->ids.emplace_back(Kafka);
         }
-        if (allow_mysql_tbl || allow_postgresql_tbl)
+        if ((allow_mysql_tbl || allow_postgresql_tbl) && (fc.engine_mask & allow_external_distributed) != 0)
         {
             this->ids.emplace_back(ExternalDistributed);
         }
