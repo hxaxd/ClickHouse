@@ -1,5 +1,6 @@
 #include <Common/QueryFuzzer.h>
 
+#include <Core/UUID.h>
 #include <DataTypes/DataTypeAggregateFunction.h>
 #include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypeDateTime.h>
@@ -1419,11 +1420,23 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         fuzzTableStorage(*create.storage);
     }
 
-    /// The inner table storage of a materialized view lives in `targets`, not in `storage`.
-    if (create.is_materialized_view)
+    /// Fuzz the inner target tables — the inner storage and column lists live in `targets`, not
+    /// in `storage`. Covers every target kind: the To inner table of a materialized view, the
+    /// Inner table of a window view, and the Samples/Tags/Metrics tables of a TimeSeries table.
+    if (create.targets)
     {
-        if (auto * inner_storage = create.getTargetInnerEngine(ViewTarget::To))
-            fuzzTableStorage(*inner_storage);
+        for (auto * inner_storage : create.targets->getInnerEngines())
+            if (inner_storage)
+                fuzzTableStorage(*inner_storage);
+
+        for (auto kind : create.targets->getKinds())
+            if (auto * inner_cols = create.targets->getInnerColumns(kind); inner_cols && inner_cols->columns)
+                for (auto & col_ast : inner_cols->columns->children)
+                    if (auto * col = col_ast->as<ASTColumnDeclaration>())
+                    {
+                        fuzzColumnDeclaration(*col);
+                        fuzz(col_ast);
+                    }
     }
 
     /// Fuzz CREATE MATERIALIZED VIEW: toggle POPULATE and refresh strategy parameters
@@ -1636,6 +1649,49 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
     if (!create.replace_table && !create.create_or_replace && !create.replace_view && fuzz_rand() % 30 == 0)
         create.if_not_exists = !create.if_not_exists;
 
+    /// Toggle the explicit UUID clause: add a random `UUID '...'` or drop an existing one.
+    /// Not valid for TEMPORARY tables. The formatter emits the clause whenever `uuid` is non-Nil,
+    /// and the parser reads it back from the table/database/dictionary identifier, so it round-trips.
+    if (!create.isTemporary() && fuzz_rand() % 30 == 0)
+    {
+        if (create.uuid != UUIDHelpers::Nil)
+        {
+            create.uuid = UUIDHelpers::Nil;
+            create.has_uuid = false;
+            create.has_uuid_clause = false;
+        }
+        else
+        {
+            UUID new_uuid;
+            UUIDHelpers::getHighBytes(new_uuid) = fuzz_rand();
+            UUIDHelpers::getLowBytes(new_uuid) = fuzz_rand();
+            create.uuid = new_uuid;
+            create.has_uuid = true;
+            create.has_uuid_clause = true;
+        }
+    }
+
+    /// Fuzz ATTACH ... AS [NOT] REPLICATED — only valid for plain-table ATTACH (not views,
+    /// dictionaries or databases). It is mutually exclusive with FROM 'path' in the parser, so
+    /// setting it clears the attach-from-path clause. Cleared on CREATE so a query toggled out of
+    /// ATTACH does not emit a stray `AS REPLICATED` that would fail to reparse.
+    if (create.attach && create.table && !create.isView() && !create.is_dictionary)
+    {
+        if (fuzz_rand() % 20 == 0)
+        {
+            if (create.attach_as_replicated.has_value() && fuzz_rand() % 3 == 0)
+                create.attach_as_replicated.reset();
+            else
+            {
+                create.attach_as_replicated = (fuzz_rand() % 2 == 0);
+                create.has_attach_from_path = false;
+                create.attach_from_path.clear();
+            }
+        }
+    }
+    else if (create.attach_as_replicated.has_value())
+        create.attach_as_replicated.reset();
+
     /// Toggle EMPTY: CREATE ... EMPTY AS SELECT skips inserting the initial data.
     /// EMPTY and CLONE are mutually exclusive in the parser.
     if (create.select && fuzz_rand() % 20 == 0)
@@ -1651,6 +1707,18 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         create.is_clone_as = !create.is_clone_as;
         if (create.is_clone_as)
             create.is_create_empty = false;
+    }
+
+    /// Swap the CLONE/AS source table (`... AS src` / `... CLONE AS src`) with a random known
+    /// fuzzed table name, so the schema-copy / clone path sees different (and often existing) sources.
+    if (!create.as_table.empty() && !original_table_name_to_fuzzed.empty() && fuzz_rand() % 20 == 0)
+    {
+        const auto & fuzzed = std::next(original_table_name_to_fuzzed.begin(), fuzz_rand() % original_table_name_to_fuzzed.size())->second;
+        if (!fuzzed.empty())
+        {
+            create.as_table = *std::next(fuzzed.begin(), fuzz_rand() % fuzzed.size());
+            create.as_database.clear();
+        }
     }
 
     /// VIEW -> MATERIALIZED VIEW, one way only: the reverse would render stale MV clauses, and
@@ -1715,6 +1783,68 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         /// No ENGINE clause falls back to the `default_table_engine` setting
         if (fuzz_rand() % 100 == 0)
             drop_storage_clause(create.storage->engine);
+
+        /// Add missing key clauses — the drops above only remove them, so without this the fuzzer
+        /// could never introduce PARTITION BY / ORDER BY / PRIMARY KEY / UNIQUE KEY on a table
+        /// lacking them. Skipped for CREATE DATABASE, whose parser accepts no key clauses.
+        if (create.table)
+        {
+            /// Prefer the table's own columns so many of the added keys are actually valid
+            auto random_key_expr = [&]() -> ASTPtr
+            {
+                Strings names;
+                if (create.columns_list && create.columns_list->columns)
+                    for (const auto & col_ast : create.columns_list->columns->children)
+                        if (const auto * col = col_ast->as<ASTColumnDeclaration>())
+                            names.push_back(col->name);
+                if (!names.empty() && fuzz_rand() % 4 != 0)
+                    return make_intrusive<ASTIdentifier>(pickRandomly(fuzz_rand, names));
+                return getRandomColumnLike();
+            };
+
+            /// getRandomColumnLike may return nullptr when the pool is empty
+            auto add_storage_clause = [&](IAST *& ptr, ASTPtr expr)
+            {
+                if (expr)
+                    create.storage->set(ptr, std::move(expr));
+            };
+
+            /// ASC/DESC wrappers only parse inside ORDER BY, so such a key cannot be cloned
+            /// into PRIMARY KEY without breaking reparse
+            auto order_by_has_direction = [&]
+            {
+                const auto * order_by = create.storage->order_by;
+                if (order_by->as<ASTStorageOrderByElement>())
+                    return true;
+                if (const auto * fn = order_by->as<ASTFunction>(); fn && fn->name == "tuple" && fn->arguments)
+                    for (const auto & child : fn->arguments->children)
+                        if (child->as<ASTStorageOrderByElement>())
+                            return true;
+                return false;
+            };
+
+            if (!create.storage->partition_by && fuzz_rand() % 50 == 0)
+                add_storage_clause(create.storage->partition_by, random_key_expr());
+            if (!create.storage->order_by && fuzz_rand() % 50 == 0)
+                add_storage_clause(create.storage->order_by, fuzz_rand() % 3 == 0 ? makeASTFunction("tuple") : random_key_expr());
+            /// A PRIMARY KEY identical to ORDER BY is a valid prefix; without ORDER BY a lone
+            /// PRIMARY KEY is also valid DDL (the sorting key defaults to it)
+            if (!create.storage->primary_key && fuzz_rand() % 50 == 0)
+            {
+                ASTPtr pk;
+                if (create.storage->order_by && !order_by_has_direction() && fuzz_rand() % 2 == 0)
+                    pk = create.storage->order_by->clone();
+                else
+                    pk = random_key_expr();
+                add_storage_clause(create.storage->primary_key, std::move(pk));
+            }
+            if (!create.storage->unique_key && fuzz_rand() % 100 == 0)
+                add_storage_clause(create.storage->unique_key, random_key_expr());
+
+            /// set() appends to children; restore the canonical order expected by clone/format/hash
+            create.storage->normalizeChildrenOrder();
+        }
+
         /// Introduce DESC on individual MergeTree ORDER BY key columns.
         /// The parser strips ASTStorageOrderByElement wrappers when all directions are ASC
         /// (all-or-nothing rule: KeyDescription expects either all wrapped or none).
@@ -1959,6 +2089,17 @@ void QueryFuzzer::fuzzColumnDeclaration(ASTColumnDeclaration & column)
     /// Toggle inline PRIMARY KEY specifier (column-level PRIMARY KEY declaration)
     if (fuzz_rand() % 50 == 0)
         column.primary_key_specifier = !column.primary_key_specifier;
+
+    /// Toggle EPHEMERAL default suppression: `col T EPHEMERAL <expr>` <-> `col T EPHEMERAL`.
+    /// Only meaningful for EPHEMERAL columns; hiding the expression requires an explicit type,
+    /// otherwise the column would have neither type nor default and fail to reparse.
+    if (column.default_specifier == ColumnDefaultSpecifier::Ephemeral && column.getDefaultExpression() && fuzz_rand() % 20 == 0)
+    {
+        if (column.ephemeral_default)
+            column.ephemeral_default = false;
+        else if (column.getType())
+            column.ephemeral_default = true;
+    }
 }
 
 /// String case, validity and normalization functions (string → string or UInt8).
