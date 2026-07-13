@@ -1692,8 +1692,7 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
     /// tables, window views, inner-engine MVs and refreshable TO-target MVs accept it;
     /// ordinary views and plain TO-target MVs reject it, so restrict the toggle to the rest.
     const bool empty_form_ok = create.select
-        && (create.is_window_view
-            || create.is_materialized_view_with_inner_table()
+        && (create.is_window_view || create.is_materialized_view_with_inner_table()
             || (create.is_materialized_view_with_external_target() && create.refresh_strategy)
             || (!create.isView() && !create.is_dictionary));
     if (empty_form_ok && fuzz_rand() % 20 == 0)
@@ -5772,8 +5771,10 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * drop_query = typeid_cast<ASTDropQuery *>(ast.get()))
     {
-        /// Cycle between DROP / DETACH / TRUNCATE; the [ALL] TABLES form only parses for TRUNCATE
-        if (!drop_query->has_tables && !drop_query->has_all && fuzz_rand() % 100 == 0)
+        /// Cycle between DROP / DETACH / TRUNCATE. The [ALL] TABLES form parses only for TRUNCATE and
+        /// multiple table names only for DROP, so skip the flip when either is present.
+        const bool multi_table = drop_query->database_and_tables && drop_query->database_and_tables->children.size() > 1;
+        if (!drop_query->has_tables && !drop_query->has_all && !multi_table && fuzz_rand() % 100 == 0)
         {
             drop_query->kind = static_cast<ASTDropQuery::Kind>(fuzz_rand() % 3);
             /// TRUNCATE DICTIONARY / VIEW does not reparse
@@ -5782,6 +5783,9 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 drop_query->is_dictionary = false;
                 drop_query->is_view = false;
             }
+            /// PERMANENTLY parses only for DETACH
+            if (drop_query->kind != ASTDropQuery::Detach)
+                drop_query->permanently = false;
         }
         if (fuzz_rand() % 20 == 0)
             drop_query->if_exists = !drop_query->if_exists;
@@ -5813,13 +5817,13 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             }
         }
         /// Multi-table DROP t1, t2: remove, duplicate or shuffle entries (table identifiers
-        /// only — the formatter rejects anything else)
+        /// only — the formatter rejects anything else). Growing the list is DROP-only.
         if (drop_query->database_and_tables)
         {
             auto & tabs = drop_query->database_and_tables->children;
             if (tabs.size() > 1 && fuzz_rand() % 50 == 0)
                 tabs.erase(tabs.begin() + fuzz_rand() % tabs.size());
-            if (!tabs.empty() && fuzz_rand() % 50 == 0)
+            if (drop_query->kind == ASTDropQuery::Drop && !tabs.empty() && fuzz_rand() % 50 == 0)
                 tabs.insert(tabs.begin() + fuzz_rand() % (tabs.size() + 1), tabs[fuzz_rand() % tabs.size()]->clone());
             if (tabs.size() > 1 && fuzz_rand() % 50 == 0)
                 std::shuffle(tabs.begin(), tabs.end(), fuzz_rand);
@@ -6075,15 +6079,13 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                                                                                          : ASTAlterCommand::DROP_PARTITION;
                 if (fuzz_rand() % 20 == 0)
                     alter_cmd->detach = !alter_cmd->detach;
-                if (fuzz_rand() % 20 == 0)
-                    alter_cmd->part = !alter_cmd->part;
+                /// Do not flip `part`: PARTITION holds an ASTPartition while PART holds a string
+                /// part name (parsed differently), so a plain toggle produces unreparseable text.
                 break;
             case ASTAlterCommand::MOVE_PARTITION:
                 if (fuzz_rand() % 20 == 0)
                     alter_cmd->detach = !alter_cmd->detach;
-                if (fuzz_rand() % 20 == 0)
-                    alter_cmd->part = !alter_cmd->part;
-                /// Cycle move destination type between DISK, VOLUME, TABLE
+                /// Cycle move destination; MOVE PART ... TO TABLE does not parse (TABLE is PARTITION-only)
                 if (fuzz_rand() % 10 == 0)
                 {
                     static const DataDestinationType dest_types[] = {
@@ -6091,7 +6093,7 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                         DataDestinationType::VOLUME,
                         DataDestinationType::TABLE,
                     };
-                    alter_cmd->move_destination_type = dest_types[fuzz_rand() % 3];
+                    alter_cmd->move_destination_type = dest_types[fuzz_rand() % (alter_cmd->part ? 2 : 3)];
                 }
                 break;
             case ASTAlterCommand::DROP_CONSTRAINT:
@@ -6106,10 +6108,6 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 /// IN PARTITION sub-expressions are exercised via the recursive fuzz(alter_cmd->children) below.
                 if (fuzz_rand() % 20 == 0)
                     alter_cmd->if_exists = !alter_cmd->if_exists;
-                break;
-            case ASTAlterCommand::FETCH_PARTITION:
-                if (fuzz_rand() % 20 == 0)
-                    alter_cmd->part = !alter_cmd->part;
                 break;
             case ASTAlterCommand::FREEZE_PARTITION:
             case ASTAlterCommand::FREEZE_ALL:
@@ -6202,6 +6200,10 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                     if (auto * lit = alter_cmd->comment->as<ASTLiteral>())
                         lit->value = fuzzField(lit->value);
                 break;
+            /// case ASTAlterCommand::FETCH_PARTITION:
+            /// Do not flip `part` here: FETCH PARTITION and FETCH PART parse different payloads
+            /// (ASTPartition vs string part name), so toggling the flag breaks reparse.
+            /// break;
             default: break;
         }
         fuzz(alter_cmd->children);
