@@ -6085,16 +6085,11 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             case ASTAlterCommand::MOVE_PARTITION:
                 if (fuzz_rand() % 20 == 0)
                     alter_cmd->detach = !alter_cmd->detach;
-                /// Cycle move destination; MOVE PART ... TO TABLE does not parse (TABLE is PARTITION-only)
-                if (fuzz_rand() % 10 == 0)
-                {
-                    static const DataDestinationType dest_types[] = {
-                        DataDestinationType::DISK,
-                        DataDestinationType::VOLUME,
-                        DataDestinationType::TABLE,
-                    };
-                    alter_cmd->move_destination_type = dest_types[fuzz_rand() % (alter_cmd->part ? 2 : 3)];
-                }
+                /// Swap DISK<->VOLUME only: both carry move_destination_name so it round-trips. Never
+                /// switch a TABLE move or switch to TABLE — that needs a to_table we do not synthesize.
+                if (!alter_cmd->move_destination_name.empty() && fuzz_rand() % 10 == 0)
+                    alter_cmd->move_destination_type
+                        = (fuzz_rand() % 2 == 0) ? DataDestinationType::DISK : DataDestinationType::VOLUME;
                 break;
             case ASTAlterCommand::DROP_CONSTRAINT:
             case ASTAlterCommand::MODIFY_CONSTRAINT:
