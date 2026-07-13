@@ -2107,6 +2107,23 @@ ConfigurationPtr Context::getUsersConfig()
     return shared->users_config;
 }
 
+namespace
+{
+
+/// every entry point that selects a namespace (USE, protocol handshakes, DEFAULT DATABASE)
+/// must agree with USE on whether it exists; may reach a remote catalog, so never call
+/// this under the Context mutex
+void validateTableNamespacePrefix(const String & database_name, const String & table_prefix, ContextPtr context)
+{
+    if (table_prefix.empty())
+        return;
+    Names parts;
+    splitInto<'.'>(parts, table_prefix);
+    DatabaseCatalog::instance().getDatabase(database_name)->validateTableNamespace(parts, context);
+}
+
+}
+
 void Context::setUser(const UUID & user_id_, const std::vector<UUID> & external_roles_)
 {
     /// Prepare lists of user's profiles, constraints, settings, roles.
@@ -2121,6 +2138,15 @@ void Context::setUser(const UUID & user_id_, const std::vector<UUID> & external_
     auto enabled_profiles = access_control.getEnabledSettingsInfo(user_id_, user->settings, enabled_roles->enabled_roles, enabled_roles->settings_from_enabled_roles);
     const auto & database = user->default_database;
 
+    /// It's optional to specify the DEFAULT DATABASE in the user's definition.
+    /// "db.namespace" selects a namespace inside a database; validate before taking the mutex.
+    CurrentDatabaseInfo default_database_info;
+    if (!database.empty())
+    {
+        default_database_info = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(database);
+        validateTableNamespacePrefix(default_database_info.database, default_database_info.table_prefix, shared_from_this());
+    }
+
     /// Apply user's profiles, constraints, settings, roles.
     std::lock_guard lock(mutex);
 
@@ -2133,13 +2159,8 @@ void Context::setUser(const UUID & user_id_, const std::vector<UUID> & external_
     setCurrentRolesWithLock(default_roles, lock);
     setExternalRolesWithLock(external_roles_, lock);
 
-    /// It's optional to specify the DEFAULT DATABASE in the user's definition.
-    /// "db.namespace" selects a namespace inside a DataLakeCatalog database.
     if (!database.empty())
-    {
-        const auto [database_name, table_prefix] = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(database);
-        setCurrentDatabaseWithLock(database_name, table_prefix, lock);
-    }
+        setCurrentDatabaseWithLock(default_database_info.database, default_database_info.table_prefix, lock);
 }
 
 std::shared_ptr<const User> Context::getUser() const
@@ -3555,6 +3576,8 @@ void Context::setCurrentDatabase(const String & name, const String & table_prefi
         database_name = info.database;
         database_table_prefix = info.table_prefix;
     }
+
+    validateTableNamespacePrefix(database_name, database_table_prefix, shared_from_this());
 
     std::lock_guard lock(mutex);
     setCurrentDatabaseWithLock(database_name, database_table_prefix, lock);

@@ -1,0 +1,7 @@
+-- GRANT ON * under a namespace covers the namespace recursively and nothing else
+0
+0
+1
+1
+-- the stored grant shows the namespace scope
+1

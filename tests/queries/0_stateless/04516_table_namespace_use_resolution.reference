@@ -10,6 +10,8 @@
 42
 -- USE of a namespace with no tables is rejected
 1
+-- the protocol default database validates the namespace the same way
+1
 -- CREATE under the namespace lands inside it
 1
 -- CREATE with a two-part name and unknown database must fail, not create a dotted table
