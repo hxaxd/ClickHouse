@@ -291,6 +291,15 @@ void ReplaceQueryParameterVisitor::visitIdentifier(ASTPtr & ast)
     if (!replaced_parameter)
         return;
 
+    /// table paths are kept unfolded while parts are parameters; fold now
+    if (ast_identifier->as<ASTTableIdentifier>() && name_parts.size() > 2)
+    {
+        String table_name = name_parts[1];
+        for (size_t i = 2; i < name_parts.size(); ++i)
+            table_name += "." + name_parts[i];
+        name_parts = {name_parts[0], std::move(table_name)};
+    }
+
     /// FIXME: what should this mean?
     if (!ast_identifier->semantic->special && name_parts.size() >= 2)
         ast_identifier->semantic->table = ast_identifier->name_parts.end()[-2];

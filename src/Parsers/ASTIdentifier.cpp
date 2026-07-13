@@ -200,6 +200,11 @@ ASTTableIdentifier::ASTTableIdentifier(const String & database_name, const Strin
 {
 }
 
+ASTTableIdentifier::ASTTableIdentifier(std::vector<String> && name_parts_, ASTs && name_params)
+    : ASTIdentifier(std::move(name_parts_), true, std::move(name_params))
+{
+}
+
 ASTPtr ASTTableIdentifier::clone() const
 {
     auto ret = make_intrusive<ASTTableIdentifier>(*this);
@@ -210,13 +215,18 @@ ASTPtr ASTTableIdentifier::clone() const
 
 StorageID ASTTableIdentifier::getTableId() const
 {
-    if (name_parts.size() == 2) return {name_parts[0], name_parts[1], uuid};
-    return {{}, name_parts[0], uuid};
+    if (name_parts.size() == 1)
+        return {{}, name_parts[0], uuid};
+
+    String table_name = name_parts[1];
+    for (size_t i = 2; i < name_parts.size(); ++i)
+        table_name += "." + name_parts[i];
+    return {name_parts[0], table_name, uuid};
 }
 
 String ASTTableIdentifier::getDatabaseName() const
 {
-    if (name_parts.size() == 2) return name_parts[0];
+    if (name_parts.size() >= 2) return name_parts[0];
     return {};
 }
 
