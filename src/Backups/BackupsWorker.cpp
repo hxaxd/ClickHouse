@@ -341,6 +341,25 @@ void canonicalizeBackupElements(ASTBackupQuery::Elements & elements, const Strin
 {
     for (auto & element : elements)
     {
+        if (element.type == ASTBackupQuery::DATABASE)
+        {
+            std::set<DatabaseAndTableName> folded_except_tables;
+            for (const auto & except_table : element.except_tables)
+            {
+                auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
+                    StorageID(except_table.first, except_table.second), element.database_name);
+                /// the except table must be inside the backed-up database: an existing
+                /// database qualifier stays a database and is rejected as before
+                if (folded.database_name != element.database_name)
+                    throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                        "Database name in EXCEPT TABLES clause doesn't match the database name in DATABASE clause: {} != {}",
+                        folded.database_name, element.database_name);
+                folded_except_tables.emplace(DatabaseAndTableName{folded.database_name, folded.table_name});
+            }
+            element.except_tables = std::move(folded_except_tables);
+            continue;
+        }
+
         if (element.type == ASTBackupQuery::ALL)
         {
             std::set<DatabaseAndTableName> folded_except_tables;
