@@ -385,8 +385,10 @@ void optimizeLazyFinal(const Stack & stack, QueryPlan & query_plan, QueryPlan::N
     if (data.merging_params.mode != MergeTreeData::MergingParams::Replacing)
         return;
 
-    /// Skip if projection was applied.
-    if (reading_step->getAnalyzedResult())
+    /// Skip if projection was applied. A non-null analysis result alone does not imply
+    /// a projection: join-order estimation runs index analysis for join relations and
+    /// memoizes the result (see estimateReadRowsCount in optimizeJoin.cpp).
+    if (auto analyzed = reading_step->getAnalyzedResult(); analyzed && analyzed->readFromProjection())
         return;
 
     /// Check the immediate parent for a FilterStep or InputSelectorStep.
