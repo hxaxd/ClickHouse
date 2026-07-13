@@ -857,12 +857,8 @@ IdentifierResolveResult IdentifierResolver::tryResolveIdentifierFromTableExpress
             && numberOfPartsMatchingTableName(identifier, 1, table_name) + 1 == parts_size)
             return { .resolved_identifier = table_expression_node, .resolve_place = IdentifierResolvePlace::JOIN_TREE };
 
-        if (parts_size != 1 && parts_size != 2)
-            throw Exception(ErrorCodes::INVALID_IDENTIFIER,
-                "Expected identifier '{}' to contain 1 or 2 parts to be resolved as table expression. In scope {}",
-                identifier_lookup.identifier.getFullName(),
-                table_expression_node->formatASTForErrorMessage());
-
+        /// no eager error for longer identifiers: the caller falls through to CTE,
+        /// parent-scope and database-catalog resolution, which handle table paths
         return {};
     }
 

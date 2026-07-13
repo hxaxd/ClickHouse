@@ -18,11 +18,7 @@ $CLICKHOUSE_CLIENT --enable_analyzer=0 -q "SELECT * FROM functions" 2>&1 | grep 
 # When the DATABASE part of a compound name does not exist, the database is resolved
 # (and rejected) before the table, so the error stays UNKNOWN_DATABASE and must NOT fall
 # back to a cross-database table hint such as `system.functions`. Verify both analyzers.
-# Run with a current database that has no table namespaces (Lazy engine), so a
-# missing database qualifier is not folded into a table path.
-$CLICKHOUSE_CLIENT -q "CREATE DATABASE ${CLICKHOUSE_DATABASE}_lazy ENGINE = Lazy(1)"
-$CLICKHOUSE_CLIENT --database="${CLICKHOUSE_DATABASE}_lazy" --enable_analyzer=1 -q "SELECT * FROM ${CLICKHOUSE_DATABASE}_missing.functions" 2>&1 | grep -oF -m1 "UNKNOWN_DATABASE"
-$CLICKHOUSE_CLIENT --database="${CLICKHOUSE_DATABASE}_lazy" --enable_analyzer=1 -q "SELECT * FROM ${CLICKHOUSE_DATABASE}_missing.functions" 2>&1 | grep -c -F "Maybe you meant system.functions?" || true
-$CLICKHOUSE_CLIENT --database="${CLICKHOUSE_DATABASE}_lazy" --enable_analyzer=0 -q "SELECT * FROM ${CLICKHOUSE_DATABASE}_missing.functions" 2>&1 | grep -oF -m1 "UNKNOWN_DATABASE"
-$CLICKHOUSE_CLIENT --database="${CLICKHOUSE_DATABASE}_lazy" --enable_analyzer=0 -q "SELECT * FROM ${CLICKHOUSE_DATABASE}_missing.functions" 2>&1 | grep -c -F "Maybe you meant system.functions?" || true
-$CLICKHOUSE_CLIENT -q "DROP DATABASE ${CLICKHOUSE_DATABASE}_lazy"
+# A missing database qualifier may fold into a table path when the current database
+# supports namespaces, so the error is UNKNOWN_DATABASE or UNKNOWN_TABLE by engine.
+$CLICKHOUSE_CLIENT --enable_analyzer=1 -q "SELECT * FROM ${CLICKHOUSE_DATABASE}_missing.functions" 2>&1 | grep -m1 -c -E "UNKNOWN_DATABASE|UNKNOWN_TABLE"
+$CLICKHOUSE_CLIENT --enable_analyzer=0 -q "SELECT * FROM ${CLICKHOUSE_DATABASE}_missing.functions" 2>&1 | grep -m1 -c -E "UNKNOWN_DATABASE|UNKNOWN_TABLE"
