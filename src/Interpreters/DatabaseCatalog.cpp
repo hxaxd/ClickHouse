@@ -918,7 +918,7 @@ bool DatabaseCatalog::isDatabaseExist(std::string_view database_name) const
     return databases.contains(database_name);
 }
 
-std::pair<String, String> DatabaseCatalog::splitTablePrefixFromDatabaseName(const String & name) const
+CurrentDatabaseInfo DatabaseCatalog::splitTablePrefixFromDatabaseName(const String & name) const
 {
     if (name.empty() || isDatabaseExist(name))
         return {name, ""};

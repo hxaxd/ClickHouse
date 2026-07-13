@@ -158,7 +158,7 @@ public:
     /// For "db.namespace" where `db` supports table namespaces and no database with the full
     /// dotted name exists, returns {"db", "namespace"}. Otherwise returns {name, ""}.
     /// Existence of the namespace itself is not checked here (may require a remote call).
-    std::pair<String, String> splitTablePrefixFromDatabaseName(const String & name) const;
+    CurrentDatabaseInfo splitTablePrefixFromDatabaseName(const String & name) const;
 
     /// Interpret the qualifier of a table name written in a query: an existing database wins;
     /// otherwise, if the current database supports namespaces, the qualifier is a namespace

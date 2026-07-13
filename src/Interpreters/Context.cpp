@@ -1454,6 +1454,18 @@ String Context::resolveDatabase(const String & database_name) const
     return res;
 }
 
+CurrentDatabaseInfo Context::resolveDatabaseInfo(const String & database_name) const
+{
+    if (database_name.empty())
+    {
+        auto info = getCurrentDatabaseInfo();
+        if (info.database.empty())
+            throw Exception(ErrorCodes::UNKNOWN_DATABASE, "Default database is not selected");
+        return info;
+    }
+    return DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(database_name);
+}
+
 String Context::getPath() const
 {
     SharedLockGuard lock(shared->mutex);
@@ -3538,7 +3550,11 @@ void Context::setCurrentDatabase(const String & name, const String & table_prefi
     /// A dotted name may select a namespace inside a DataLakeCatalog database ("db.namespace"),
     /// e.g. a client default database persisted after `USE db.namespace` and sent on reconnect.
     if (database_table_prefix.empty() && !name.empty())
-        std::tie(database_name, database_table_prefix) = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(name);
+    {
+        const auto info = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(name);
+        database_name = info.database;
+        database_table_prefix = info.table_prefix;
+    }
 
     std::lock_guard lock(mutex);
     setCurrentDatabaseWithLock(database_name, database_table_prefix, lock);

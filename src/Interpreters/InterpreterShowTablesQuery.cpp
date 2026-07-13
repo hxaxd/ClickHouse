@@ -162,19 +162,10 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     if (query.temporary && !query.getFrom().empty())
         throw Exception(ErrorCodes::SYNTAX_ERROR, "The `FROM` and `TEMPORARY` cannot be used together in `SHOW TABLES`");
 
-    String database;
-    String table_namespace;
-    if (query.getFrom().empty())
-    {
-        const auto current_db_info = getContext()->getCurrentDatabaseInfo();
-        database = getContext()->resolveDatabase("");
-        table_namespace = current_db_info.table_prefix;
-    }
-    else
-    {
-        /// SHOW TABLES FROM catalog.namespace
-        std::tie(database, table_namespace) = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(query.getFrom());
-    }
+    /// FROM may carry a namespace suffix: SHOW TABLES FROM catalog.namespace
+    const auto database_info = getContext()->resolveDatabaseInfo(query.getFrom());
+    const String & database = database_info.database;
+    const String & table_namespace = database_info.table_prefix;
     DatabaseCatalog::instance().assertDatabaseExists(database);
 
     WriteBufferFromOwnString rewritten_query;
@@ -250,8 +241,7 @@ BlockIO InterpreterShowTablesQuery::execute()
         return res;
     }
     auto rewritten_query = getRewrittenQuery();
-    /// FROM may carry a namespace suffix: catalog.namespace
-    String database = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(getContext()->resolveDatabase(query.getFrom())).first;
+    String database = getContext()->resolveDatabaseInfo(query.getFrom()).database;
     auto query_context = Context::createCopy(getContext());
     query_context->makeQueryContext();
     query_context->setCurrentQueryId("");

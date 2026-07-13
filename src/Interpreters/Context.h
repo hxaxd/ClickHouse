@@ -999,6 +999,8 @@ public:
     };
 
     String resolveDatabase(const String & database_name) const;
+    /// Same, but a dotted name may select a namespace: "db.ns" -> {db, ns}.
+    CurrentDatabaseInfo resolveDatabaseInfo(const String & database_name) const;
     StorageID resolveStorageID(StorageID storage_id, StorageNamespace where = StorageNamespace::ResolveAll) const;
     StorageID tryResolveStorageID(StorageID storage_id, StorageNamespace where = StorageNamespace::ResolveAll) const;
 
