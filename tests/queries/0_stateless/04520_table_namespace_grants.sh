@@ -20,16 +20,16 @@ echo "-- GRANT ON * under a namespace covers the namespace recursively and nothi
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; GRANT SELECT ON * TO $user"
 $CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.\`ns.t\`"
 $CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.\`ns.sub.t2\`"
-$CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.\`other.t3\`" 2>&1 | grep -c "ACCESS_DENIED"
-$CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.plain" 2>&1 | grep -c "ACCESS_DENIED"
+$CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.\`other.t3\`" 2>&1 | grep -m1 -c "ACCESS_DENIED"
+$CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.plain" 2>&1 | grep -m1 -c "ACCESS_DENIED"
 
 echo "-- the stored grant shows the namespace scope"
-$CLICKHOUSE_CLIENT -q "SHOW GRANTS FOR $user" | grep -c "ns."
+$CLICKHOUSE_CLIENT -q "SHOW GRANTS FOR $user" | grep -m1 -c "ns."
 
 echo "-- wildcard row policy operations are rejected under a namespace"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; CREATE ROW POLICY pol_$db ON * USING 1 TO ALL" 2>&1 | grep -c "BAD_ARGUMENTS"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; DROP ROW POLICY IF EXISTS pol_$db ON *" 2>&1 | grep -c "BAD_ARGUMENTS"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW ROW POLICIES ON *" 2>&1 | grep -c "BAD_ARGUMENTS"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; CREATE ROW POLICY pol_$db ON * USING 1 TO ALL" 2>&1 | grep -m1 -c "BAD_ARGUMENTS"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; DROP ROW POLICY IF EXISTS pol_$db ON *" 2>&1 | grep -m1 -c "BAD_ARGUMENTS"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW ROW POLICIES ON *" 2>&1 | grep -m1 -c "BAD_ARGUMENTS"
 
 echo "-- CREATE ON CLUSTER authorizes exactly the created table"
 $CLICKHOUSE_CLIENT -m -q "
@@ -41,7 +41,7 @@ $CLICKHOUSE_CLIENT --user "$user" -m -q "
     SET distributed_ddl_output_mode = 'none';
     SET distributed_ddl_entry_format_version = 2;
     USE $db.ns;
-    CREATE TABLE made_on_cluster (x Int8) ENGINE = Memory ON CLUSTER test_shard_localhost;
+    CREATE TABLE made_on_cluster ON CLUSTER test_shard_localhost (x Int8) ENGINE = Memory;
 "
 $CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.made_on_cluster\`"
 

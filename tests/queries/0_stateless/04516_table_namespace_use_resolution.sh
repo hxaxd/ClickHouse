@@ -35,17 +35,17 @@ $CLICKHOUSE_CLIENT -m -q "
 "
 
 echo "-- USE of a namespace with no tables is rejected"
-$CLICKHOUSE_CLIENT -q "USE $db.no_such_namespace" 2>&1 | grep -c "UNKNOWN_TABLE"
+$CLICKHOUSE_CLIENT -q "USE $db.no_such_namespace" 2>&1 | grep -m1 -c "UNKNOWN_TABLE"
 
 echo "-- the protocol default database validates the namespace the same way"
-${CLICKHOUSE_CURL} -sS -H "X-ClickHouse-Database: $db.no_such_namespace" "${CLICKHOUSE_URL}" -d 'SELECT 1' | grep -c "UNKNOWN_TABLE"
+${CLICKHOUSE_CURL} -sS -H "X-ClickHouse-Database: $db.no_such_namespace" "${CLICKHOUSE_URL}" -d 'SELECT 1' | grep -m1 -c "UNKNOWN_TABLE"
 
 echo "-- CREATE under the namespace lands inside it"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; CREATE TABLE created (a Int8) ENGINE = Memory"
 $CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.created\`"
 
 echo "-- CREATE with a two-part name and unknown database must fail, not create a dotted table"
-$CLICKHOUSE_CLIENT -q "CREATE TABLE no_such_db_$db.t (a Int8) ENGINE = Memory" 2>&1 | grep -c "UNKNOWN_DATABASE"
+$CLICKHOUSE_CLIENT -q "CREATE TABLE no_such_db_$db.t (a Int8) ENGINE = Memory" 2>&1 | grep -m1 -c "UNKNOWN_DATABASE"
 
 echo "-- materialized view target with a namespace path"
 $CLICKHOUSE_CLIENT -m -q "

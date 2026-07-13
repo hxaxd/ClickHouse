@@ -69,4 +69,4 @@ $CLICKHOUSE_CLIENT -m -q "
 "
 
 echo "-- JSON subcolumn delimiters are not part of a table path"
-$CLICKHOUSE_CLIENT -q "SELECT * FROM ns.j.:x" 2>&1 | grep -c "Syntax error"
+$CLICKHOUSE_CLIENT -q "SELECT * FROM ns.j.:x" 2>&1 | grep -m1 -c "Syntax error"

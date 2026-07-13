@@ -30,7 +30,7 @@ echo "-- nested namespace"
 $CLICKHOUSE_CLIENT -q "SHOW TABLES FROM $db.ns.sub"
 
 echo "-- dictionaries have no namespaces"
-$CLICKHOUSE_CLIENT -q "SHOW DICTIONARIES FROM $db.ns" 2>&1 | grep -c "UNKNOWN_DATABASE"
+$CLICKHOUSE_CLIENT -q "SHOW DICTIONARIES FROM $db.ns" 2>&1 | grep -m1 -c "UNKNOWN_DATABASE"
 
 echo "-- without a namespace the full names are shown"
 $CLICKHOUSE_CLIENT -q "SHOW TABLES FROM $db" | sort

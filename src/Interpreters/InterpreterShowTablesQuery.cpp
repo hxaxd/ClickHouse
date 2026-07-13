@@ -182,12 +182,12 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     const bool scoped = !table_namespace.empty() && !query.dictionaries && !query.temporary;
 
     if (query.full)
-        rewritten_query << "SELECT name, engine FROM ";
+        rewritten_query << (scoped ? "SELECT relative_name AS name, engine FROM " : "SELECT name, engine FROM ");
     else
-        rewritten_query << "SELECT name FROM ";
+        rewritten_query << (scoped ? "SELECT relative_name AS name FROM " : "SELECT name FROM ");
 
     if (scoped)
-        rewritten_query << "(SELECT substring(name, " << (table_namespace.size() + 2) << ") AS name"
+        rewritten_query << "(SELECT substring(name, " << (table_namespace.size() + 2) << ") AS relative_name"
                         << (query.full ? ", engine" : "") << " FROM system.tables";
     else if (query.dictionaries)
         rewritten_query << "system.dictionaries";
