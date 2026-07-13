@@ -5,3 +5,5 @@
 1
 -- the stored grant shows the namespace scope
 1
+-- CREATE ON CLUSTER authorizes exactly the created table
+1

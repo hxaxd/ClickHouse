@@ -26,4 +26,18 @@ $CLICKHOUSE_CLIENT --user "$user" -q "SELECT count() FROM $db.plain" 2>&1 | grep
 echo "-- the stored grant shows the namespace scope"
 $CLICKHOUSE_CLIENT -q "SHOW GRANTS FOR $user" | grep -c "ns."
 
+echo "-- CREATE ON CLUSTER authorizes exactly the created table"
+$CLICKHOUSE_CLIENT -m -q "
+    GRANT SHOW DATABASES ON $db.* TO $user;
+    GRANT CLUSTER ON *.* TO $user;
+    GRANT CREATE TABLE ON $db.\`ns.made_on_cluster\` TO $user;
+"
+$CLICKHOUSE_CLIENT --user "$user" -m -q "
+    SET distributed_ddl_output_mode = 'none';
+    SET distributed_ddl_entry_format_version = 2;
+    USE $db.ns;
+    CREATE TABLE made_on_cluster (x Int8) ENGINE = Memory ON CLUSTER test_shard_localhost;
+"
+$CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.made_on_cluster\`"
+
 $CLICKHOUSE_CLIENT -q "DROP USER $user"

@@ -2716,7 +2716,12 @@ BlockIO InterpreterCreateQuery::execute()
         if (!database_info.table_prefix.empty())
         {
             if (!create.database)
+            {
                 create.setTable(database_info.table_prefix + "." + create.getTable());
+                /// pin the database too: the distributed-DDL access fold prefixes
+                /// empty-database elements and must not re-prefix this one
+                create.setDatabase(database_info.database);
+            }
             if (create.targets)
                 create.targets->setCurrentDatabase(database_info);
         }
