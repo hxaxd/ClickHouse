@@ -329,10 +329,13 @@ public:
         bool find_exact_ranges,
         bool is_parallel_reading_from_replicas_,
         bool allow_query_condition_cache_,
-        bool supports_skip_indexes_on_data_read);
+        bool supports_skip_indexes_on_data_read,
+        bool check_row_limits);
 
 
     AnalysisResultPtr selectRangesToRead(bool find_exact_ranges = false) const;
+    /// Analyze ranges for cardinality estimation without enforcing row limits or memoizing the result.
+    AnalysisResultPtr selectRangesToReadForEstimation() const;
 
     StorageMetadataPtr getStorageMetadata() const { return storage_snapshot->metadata; }
 
