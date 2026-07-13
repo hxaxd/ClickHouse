@@ -53,6 +53,8 @@
 2
 -- joinGet with a namespace-path table string
 one
+-- joinGet dependency tracking matches its runtime resolution
+1
 -- loop table function under the namespace
 1
 -- fully qualified namespace paths in joinGet and loop
