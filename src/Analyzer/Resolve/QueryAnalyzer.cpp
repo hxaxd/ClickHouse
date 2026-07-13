@@ -4525,7 +4525,7 @@ void QueryAnalyzer::resolveTableFunction(QueryTreeNodePtr & table_function_node,
     TableFunctionPtr table_function_ptr = TableFunctionFactory::instance().tryGet(table_function_name, scope_context);
     if (!table_function_ptr)
     {
-        String database_name = scope_context->getCurrentDatabase();
+        String database_name;
         String table_name;
 
         auto function_ast = table_function_node->toAST();
@@ -4534,11 +4534,23 @@ void QueryAnalyzer::resolveTableFunction(QueryTreeNodePtr & table_function_node,
         {
             table_name = table_identifier[0];
         }
-        else if (table_identifier.getPartsSize() == 2)
+        else if (table_identifier.getPartsSize() >= 2)
         {
             database_name = table_identifier[0];
             table_name = table_identifier[1];
+            for (size_t i = 2; i < table_identifier.getPartsSize(); ++i)
+                table_name += "." + table_identifier[i];
         }
+
+        /// resolve like an ordinary written table name, so a namespace scope or a
+        /// non-database qualifier finds the right (parameterized view) table
+        if (auto resolved = scope_context->tryResolveStorageIDFromQuery(StorageID(database_name, table_name), Context::ResolveOrdinary))
+        {
+            database_name = resolved.database_name;
+            table_name = resolved.table_name;
+        }
+        else if (database_name.empty())
+            database_name = scope_context->getCurrentDatabase();
 
         /// Collect parameterized view arguments
         NameToNameMap view_params;

@@ -2725,6 +2725,13 @@ BlockIO InterpreterCreateQuery::execute()
             if (create.targets)
                 create.targets->setCurrentDatabase(database_info);
         }
+
+        /// a target qualifier that isn't a database selects a table path in the
+        /// current database: CREATE MATERIALIZED VIEW ... TO ns.t under USE db
+        if (create.targets)
+            for (auto & target : create.targets->targets)
+                if (!target.table_id.database_name.empty())
+                    target.table_id = DatabaseCatalog::instance().applyNamespaceQualifier(target.table_id, database_info.database);
     }
 
     /// Normalize the `AS <table>` source through the shared resolver so DataLakeCatalog

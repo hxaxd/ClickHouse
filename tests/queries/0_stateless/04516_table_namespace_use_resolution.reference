@@ -16,5 +16,7 @@
 1
 -- CREATE with a two-part name and unknown database must fail, not create a dotted table
 1
+-- materialized view target with a namespace path
+7
 -- temporary table takes precedence over the namespace
 temp

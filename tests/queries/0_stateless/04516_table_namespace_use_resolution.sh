@@ -47,6 +47,14 @@ $CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.created\`"
 echo "-- CREATE with a two-part name and unknown database must fail, not create a dotted table"
 $CLICKHOUSE_CLIENT -q "CREATE TABLE no_such_db_$db.t (a Int8) ENGINE = Memory" 2>&1 | grep -c "UNKNOWN_DATABASE"
 
+echo "-- materialized view target with a namespace path"
+$CLICKHOUSE_CLIENT -m -q "
+    CREATE TABLE \`ns.sink\` (z UInt8) ENGINE = Memory;
+    CREATE MATERIALIZED VIEW mv_ns_target TO ns.sink AS SELECT z FROM plain;
+    INSERT INTO plain VALUES (7);
+    SELECT z FROM \`ns.sink\`;
+"
+
 echo "-- temporary table takes precedence over the namespace"
 $CLICKHOUSE_CLIENT -m -q "
     USE $db.ns;

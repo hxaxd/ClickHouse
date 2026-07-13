@@ -30,6 +30,11 @@ do
     echo "-- alias wins over the path"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT a.x FROM $db.ns.t AS a ORDER BY a.x"
 
+    echo "-- parameterized view through a namespace path"
+    $CLICKHOUSE_CLIENT -m -q "CREATE VIEW IF NOT EXISTS \`ns.pv\` AS SELECT x FROM \`ns.t\` WHERE x = {p:UInt32}"
+    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT x FROM ns.pv(p = 2)"
+    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -m -q "USE $db.ns; SELECT x FROM pv(p = 1)"
+
     echo "-- IN with a table path on the right-hand side"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN $db.ns.t"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN ns.t"

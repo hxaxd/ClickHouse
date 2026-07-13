@@ -2994,7 +2994,7 @@ static bool findIdentifier(const ASTFunction * function)
 StoragePtr Context::executeTableFunction(const ASTPtr & table_expression, const ASTSelectQuery * select_query_hint)
 {
     ASTFunction * function = assert_cast<ASTFunction *>(table_expression.get());
-    String database_name = getCurrentDatabase();
+    String database_name;
     String table_name = function->name;
 
     if (function->isCompoundName())
@@ -3002,12 +3002,24 @@ StoragePtr Context::executeTableFunction(const ASTPtr & table_expression, const 
         std::vector<std::string> parts;
         splitInto<'.'>(parts, function->name);
 
-        if (parts.size() == 2)
+        if (parts.size() >= 2)
         {
             database_name = std::move(parts[0]);
-            table_name = std::move(parts[1]);
+            table_name = parts[1];
+            for (size_t i = 2; i < parts.size(); ++i)
+                table_name += "." + parts[i];
         }
     }
+
+    /// resolve like an ordinary written table name, so a namespace scope or a
+    /// non-database qualifier finds the right (parameterized view) table
+    if (auto resolved = tryResolveStorageIDFromQuery(StorageID(database_name, table_name), StorageNamespace::ResolveOrdinary))
+    {
+        database_name = resolved.database_name;
+        table_name = resolved.table_name;
+    }
+    else if (database_name.empty())
+        database_name = getCurrentDatabase();
 
     StoragePtr table = DatabaseCatalog::instance().tryGetTable({database_name, table_name}, getQueryContext());
     if (table)
