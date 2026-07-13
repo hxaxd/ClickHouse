@@ -6088,8 +6088,7 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 /// Swap DISK<->VOLUME only: both carry move_destination_name so it round-trips. Never
                 /// switch a TABLE move or switch to TABLE — that needs a to_table we do not synthesize.
                 if (!alter_cmd->move_destination_name.empty() && fuzz_rand() % 10 == 0)
-                    alter_cmd->move_destination_type
-                        = (fuzz_rand() % 2 == 0) ? DataDestinationType::DISK : DataDestinationType::VOLUME;
+                    alter_cmd->move_destination_type = (fuzz_rand() % 2 == 0) ? DataDestinationType::DISK : DataDestinationType::VOLUME;
                 break;
             case ASTAlterCommand::DROP_CONSTRAINT:
             case ASTAlterCommand::MODIFY_CONSTRAINT:
@@ -7020,7 +7019,12 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     {
         if (!create_user->attach)
         {
-            if (fuzz_rand() % 10 == 0)
+            /// A bare ALTER USER u with no changes is rejected by the parser. Flipping to CREATE is
+            /// always fine, but only flip to ALTER when some alter-valid clause survives (create-only
+            /// ROLE / bare SETTINGS are dropped below, which could leave the ALTER empty).
+            const bool has_alter_valid_clause = !create_user->authentication_methods.empty() || create_user->hosts.has_value()
+                || create_user->default_roles || create_user->default_database || create_user->grantees || create_user->global_valid_until;
+            if ((create_user->alter || has_alter_valid_clause) && fuzz_rand() % 10 == 0)
                 create_user->alter = !create_user->alter;
             if (fuzz_rand() % 10 == 0)
                 create_user->if_exists = !create_user->if_exists;
@@ -7028,8 +7032,10 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 create_user->if_not_exists = !create_user->if_not_exists;
             if (fuzz_rand() % 10 == 0)
                 create_user->or_replace = !create_user->or_replace;
-            /// ADD IDENTIFIED and RESET AUTHENTICATION METHODS TO NEW are ALTER USER-only
-            if (create_user->alter && fuzz_rand() % 20 == 0)
+            /// ADD IDENTIFIED and RESET AUTHENTICATION METHODS TO NEW are ALTER USER-only. RESET
+            /// cannot coexist with an IDENTIFIED payload (the parser accepts it only with no auth
+            /// methods), so only toggle it when there are none.
+            if (create_user->alter && create_user->authentication_methods.empty() && fuzz_rand() % 20 == 0)
                 create_user->reset_authentication_methods_to_new = !create_user->reset_authentication_methods_to_new;
             if (create_user->alter && fuzz_rand() % 20 == 0)
                 create_user->add_identified_with = !create_user->add_identified_with;
