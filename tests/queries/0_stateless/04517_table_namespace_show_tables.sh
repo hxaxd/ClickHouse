@@ -23,7 +23,7 @@ $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW TABLES LIKE 'al%'"
 echo "-- WHERE applies to the relative name, same as LIKE"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW TABLES WHERE name = 'alpha'"
 
-echo "-- WHERE can still use other system.tables columns"
+echo "-- WHERE can still use other table columns"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW TABLES WHERE engine = 'Memory'"
 
 echo "-- SHOW TABLES FROM database.namespace"

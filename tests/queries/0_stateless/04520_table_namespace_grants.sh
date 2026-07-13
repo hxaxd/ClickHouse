@@ -36,6 +36,7 @@ echo "-- CREATE ON CLUSTER authorizes exactly the created table"
 $CLICKHOUSE_CLIENT -m -q "
     GRANT SHOW DATABASES ON $db.* TO $user;
     GRANT CLUSTER ON *.* TO $user;
+    GRANT TABLE ENGINE ON Memory TO $user;
     GRANT CREATE TABLE ON $db.\`ns.made_on_cluster\` TO $user;
 "
 $CLICKHOUSE_CLIENT --user "$user" -m -q "

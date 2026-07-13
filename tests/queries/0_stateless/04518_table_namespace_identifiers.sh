@@ -9,6 +9,8 @@ db=$CLICKHOUSE_DATABASE
 $CLICKHOUSE_CLIENT -m -q "
     CREATE TABLE \`ns.t\` (x UInt32, s String) ENGINE = MergeTree ORDER BY x;
     INSERT INTO \`ns.t\` VALUES (1, 'a'), (2, 'b');
+    CREATE TABLE \`ns.inset\` (x UInt32) ENGINE = Memory;
+    INSERT INTO \`ns.inset\` VALUES (1), (2);
 "
 
 for analyzer in 0 1
@@ -36,8 +38,8 @@ do
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -m -q "USE $db.ns; SELECT x FROM pv(p = 1)"
 
     echo "-- IN with a table path on the right-hand side"
-    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN $db.ns.t"
-    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN ns.t"
+    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN $db.ns.inset"
+    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN ns.inset"
 
     echo "-- join of two namespace tables"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -m -q "
