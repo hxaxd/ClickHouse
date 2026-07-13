@@ -29,6 +29,15 @@ $CLICKHOUSE_CLIENT -m -q "USE $db.ns; RENAME TABLE t TO renamed"
 $CLICKHOUSE_CLIENT -m -q "EXISTS TABLE $db.\`ns.renamed\`"
 $CLICKHOUSE_CLIENT -m -q "EXISTS TABLE $db.renamed"
 
+echo "-- DROP ON CLUSTER ships the namespace-qualified name"
+$CLICKHOUSE_CLIENT -m -q "
+    SET distributed_ddl_output_mode = 'none';
+    USE $db.ns;
+    CREATE TABLE cluster_victim (x Int8) ENGINE = Memory;
+    DROP TABLE cluster_victim ON CLUSTER test_shard_localhost;
+    SELECT count() FROM system.tables WHERE database = '$db' AND name = 'ns.cluster_victim';
+"
+
 echo "-- RENAME with a namespace-path source"
 $CLICKHOUSE_CLIENT -q "CREATE TABLE \`ns2.src\` (x Int8) ENGINE = Memory"
 $CLICKHOUSE_CLIENT -q "RENAME TABLE ns2.src TO \`ns2.dst\`"

@@ -10,6 +10,8 @@
 -- RENAME under the namespace stays inside it
 1
 0
+-- DROP ON CLUSTER ships the namespace-qualified name
+0
 -- RENAME with a namespace-path source
 1
 -- TRUNCATE and DROP under the namespace
