@@ -120,6 +120,17 @@ std::string correctAPIURI(const std::string & uri)
     return std::filesystem::path(uri) / "v1";
 }
 
+/// REST request bodies represent a nested namespace as an array of components.
+Poco::JSON::Array::Ptr namespaceComponents(const String & namespace_name)
+{
+    Poco::JSON::Array::Ptr components = new Poco::JSON::Array;
+    std::vector<std::string> parts;
+    splitInto<'.'>(parts, namespace_name);
+    for (const auto & part : parts)
+        components->add(part);
+    return components;
+}
+
 String encodeNamespaceForURI(const String & namespace_name)
 {
     String encoded;
@@ -1239,11 +1250,7 @@ void RestCatalog::createNamespaceIfNotExists(const String & namespace_name, cons
     const std::string endpoint = (base_url / config.prefix / NAMESPACES_ENDPOINT).generic_string();
 
     Poco::JSON::Object::Ptr request_body = new Poco::JSON::Object;
-    {
-        Poco::JSON::Array::Ptr namespaces = new Poco::JSON::Array;
-        namespaces->add(namespace_name);
-        request_body->set("namespace", namespaces);
-    }
+    request_body->set("namespace", namespaceComponents(namespace_name));
     {
         Poco::JSON::Object::Ptr properties = new Poco::JSON::Object;
         properties->set("location", location);
@@ -1311,9 +1318,7 @@ bool RestCatalog::updateMetadata(const String & namespace_name, const String & t
     {
         Poco::JSON::Object::Ptr identifier = new Poco::JSON::Object;
         identifier->set("name", table_name);
-        Poco::JSON::Array::Ptr namespaces = new Poco::JSON::Array;
-        namespaces->add(namespace_name);
-        identifier->set("namespace", namespaces);
+        identifier->set("namespace", namespaceComponents(namespace_name));
 
         request_body->set("identifier", identifier);
     }
@@ -1382,9 +1387,7 @@ bool RestCatalog::updateSchema(
     {
         Poco::JSON::Object::Ptr identifier = new Poco::JSON::Object;
         identifier->set("name", table_name);
-        Poco::JSON::Array::Ptr namespaces = new Poco::JSON::Array;
-        namespaces->add(namespace_name);
-        identifier->set("namespace", namespaces);
+        identifier->set("namespace", namespaceComponents(namespace_name));
 
         request_body->set("identifier", identifier);
     }
@@ -1433,7 +1436,9 @@ bool RestCatalog::updateSchema(
 
 void RestCatalog::dropTable(const String & namespace_name, const String & table_name) const
 {
-    const std::string endpoint = fmt::format("{}/namespaces/{}/tables/{}?purgeRequested=False", base_url, namespace_name, table_name);
+    const std::string endpoint
+        = (base_url / config.prefix / NAMESPACES_ENDPOINT / encodeNamespaceForURI(namespace_name) / "tables" / table_name).generic_string()
+        + "?purgeRequested=False";
 
     Poco::JSON::Object::Ptr request_body = nullptr;
     try

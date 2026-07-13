@@ -14,6 +14,7 @@
 #include <Storages/ColumnsDescription.h>
 #include <Common/Macros.h>
 #include <Common/typeid_cast.h>
+#include <Common/quoteString.h>
 #include <Core/Settings.h>
 
 
@@ -23,6 +24,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int SYNTAX_ERROR;
+    extern const int UNKNOWN_DATABASE;
 }
 
 
@@ -167,6 +169,11 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     const String & database = database_info.database;
     const String & table_namespace = database_info.table_prefix;
     DatabaseCatalog::instance().assertDatabaseExists(database);
+
+    /// dictionaries have no namespaces; don't silently target the parent database
+    if (query.dictionaries && !table_namespace.empty())
+        throw Exception(ErrorCodes::UNKNOWN_DATABASE, "There is no database {} to show dictionaries from",
+            backQuoteIfNeed(query.getFrom()));
 
     WriteBufferFromOwnString rewritten_query;
 

@@ -151,21 +151,11 @@ std::optional<String> IdentifierSemantic::extractNestedName(const ASTIdentifier 
 
 String IdentifierSemantic::extractNestedName(const ASTIdentifier & identifier, const DatabaseAndTableWithAlias & table)
 {
-    auto match = IdentifierSemantic::canReferColumnToTable(identifier, table);
-    size_t to_strip = 0;
-    switch (match)
-    {
-        case IdentifierSemantic::ColumnMatch::TableName:
-        case IdentifierSemantic::ColumnMatch::AliasedTableName:
-        case IdentifierSemantic::ColumnMatch::TableAlias:
-            to_strip = 1;
-            break;
-        case IdentifierSemantic::ColumnMatch::DBAndTable:
-            to_strip = 2;
-            break;
-        default:
-            break;
-    }
+    size_t to_strip = doesIdentifierBelongTo(identifier, table.database, table.table);
+    if (!to_strip)
+        to_strip = doesIdentifierBelongTo(identifier, table.alias);
+    if (!to_strip)
+        to_strip = doesIdentifierBelongTo(identifier, table.table);
     String res;
     for (size_t i = to_strip, sz = identifier.name_parts.size(); i < sz; ++i)
     {

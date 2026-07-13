@@ -10,6 +10,8 @@ alpha
 beta
 -- nested namespace
 gamma
+-- dictionaries have no namespaces
+1
 -- without a namespace the full names are shown
 ns.alpha
 ns.beta

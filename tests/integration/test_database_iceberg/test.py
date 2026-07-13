@@ -2384,6 +2384,41 @@ def test_namespace_prefix_show_tables_scope_and_wildcard_policy(started_cluster)
     )
 
 
+def test_namespace_nested_sql_ddl(started_cluster):
+    """
+    CREATE and DROP through SQL in a nested namespace must address the namespace
+    as components in REST requests, not as one dotted string.
+    """
+    node = started_cluster.instances["node1"]
+
+    test_ref = f"test_ns_nested_ddl_{uuid.uuid4().hex[:8]}"
+    root = f"ns_{test_ref}"
+    table_name = "nested_ddl_table"
+
+    catalog = load_catalog_impl(started_cluster)
+    catalog.create_namespace(root)
+    catalog.create_namespace(f"{root}.sub")
+
+    create_clickhouse_iceberg_database(started_cluster, node, CATALOG_NAME)
+
+    node.query(
+        f"CREATE TABLE {CATALOG_NAME}.{root}.sub.{table_name} (x String) "
+        f"ENGINE = IcebergS3('http://minio1:9001/warehouse-rest/{test_ref}/{table_name}/', 'minio', '{minio_secret_key}')",
+        settings={
+            "allow_experimental_database_iceberg": 1,
+            "write_full_path_in_iceberg_metadata": 1,
+        },
+    )
+    assert (
+        int(node.query(f"EXISTS TABLE {CATALOG_NAME}.`{root}.sub.{table_name}`").strip()) == 1
+    ), "table must exist in the nested namespace"
+
+    node.query(f"DROP TABLE {CATALOG_NAME}.{root}.sub.{table_name}")
+    assert (
+        int(node.query(f"EXISTS TABLE {CATALOG_NAME}.`{root}.sub.{table_name}`").strip()) == 0
+    ), "table must be dropped from the nested namespace"
+
+
 def test_namespace_prefix_mysql_init_db(started_cluster):
     """
     COM_INIT_DB (mysql select_db) must split "catalog.namespace" like SQL USE.

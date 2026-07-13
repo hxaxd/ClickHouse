@@ -29,6 +29,7 @@ $CLICKHOUSE_CLIENT -q "SHOW GRANTS FOR $user" | grep -c "ns."
 echo "-- wildcard row policy operations are rejected under a namespace"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; CREATE ROW POLICY pol_$db ON * USING 1 TO ALL" 2>&1 | grep -c "BAD_ARGUMENTS"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; DROP ROW POLICY IF EXISTS pol_$db ON *" 2>&1 | grep -c "BAD_ARGUMENTS"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW ROW POLICIES ON *" 2>&1 | grep -c "BAD_ARGUMENTS"
 
 echo "-- CREATE ON CLUSTER authorizes exactly the created table"
 $CLICKHOUSE_CLIENT -m -q "
