@@ -3,6 +3,7 @@
 -- order) and once with 'dpsub'. The two must be identical row-for-row; a wrong join kind or
 -- orientation chosen by DPsub would change which rows get NULL-padded.
 
+SET query_plan_optimize_join_order_max_searched_plans = 100000; -- pin (randomized in CI): a small search budget starves DP-only algorithms
 DROP TABLE IF EXISTS t1;
 DROP TABLE IF EXISTS t2;
 DROP TABLE IF EXISTS t3;

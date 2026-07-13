@@ -50,6 +50,9 @@ FROM
     EXPLAIN indexes = 1
     SELECT count() FROM repro_104263 FINAL
     WHERE event_time >= '2026-03-01' AND event_time <= '2026-03-31'
+    -- query_plan_optimize_lazy_final rewrites the FINAL part-pruning plan and changes this
+    -- EXPLAIN's Parts counts; pin it so global settings randomization can't perturb the check.
+    SETTINGS query_plan_optimize_lazy_final = 0
 );
 
 SELECT 'opt-out partition pruning',
@@ -61,7 +64,7 @@ FROM
     EXPLAIN indexes = 1
     SELECT count() FROM repro_104263 FINAL
     WHERE event_time >= '2026-03-01' AND event_time <= '2026-03-31'
-    SETTINGS defer_partition_pruning_after_final = 0
+    SETTINGS defer_partition_pruning_after_final = 0, query_plan_optimize_lazy_final = 0
 );
 
 DROP TABLE repro_104263 SYNC;

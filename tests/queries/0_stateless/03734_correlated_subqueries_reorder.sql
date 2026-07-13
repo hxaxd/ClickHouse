@@ -6,6 +6,9 @@ SET enable_analyzer = 1;
 
 SET query_plan_optimize_join_order_limit = 10;
 SET use_statistics = 1;
+-- Keep uniq auto-stats un-materialized on insert so the join order stays
+-- deterministic under settings randomization (materialize_statistics_on_insert).
+SET materialize_statistics_on_insert = 0;
 
 SET correlated_subqueries_substitute_equivalent_expressions = 0;
 SET correlated_subqueries_use_in_memory_buffer = 1;
@@ -20,6 +23,7 @@ SET query_plan_convert_outer_join_to_inner_join = 1; -- CI may inject False; cor
 SET query_plan_merge_filter_into_join_condition = 1; -- CI may inject False; correlated subquery equality condition not pushed into join ON clause; join stays CROSS with Filter above instead of INNER
 SET query_plan_remove_unused_columns = 1; -- CI may inject False; unused columns not pruned → extra INPUT entries and wider Positions lists in EXPLAIN actions output
 
+SET query_plan_optimize_join_order_max_searched_plans = 100000; -- pin (randomized in CI): a small search budget starves DP-only algorithms
 CREATE TABLE lineitem (
     l_orderkey       Int32,
     l_partkey        Int32,
