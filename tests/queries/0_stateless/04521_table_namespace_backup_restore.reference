@@ -1,0 +1,6 @@
+-- BACKUP a table by its namespace path
+1
+-- RESTORE it under a different namespace-path name
+1
+2
+1

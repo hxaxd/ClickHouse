@@ -64,6 +64,10 @@ $CLICKHOUSE_CLIENT -m -q "
 echo "-- loop table function under the namespace"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT x FROM loop(t) LIMIT 1"
 
+echo "-- fully qualified namespace paths in joinGet and loop"
+$CLICKHOUSE_CLIENT -q "SELECT joinGet('$db.ns.jt', 'v', toUInt32(1))"
+$CLICKHOUSE_CLIENT -q "SELECT x FROM loop($db.ns.t) LIMIT 1"
+
 echo "-- SHOW COLUMNS with a separate namespaced FROM"
 $CLICKHOUSE_CLIENT -q "SHOW COLUMNS FROM t FROM $db.ns" | wc -l
 

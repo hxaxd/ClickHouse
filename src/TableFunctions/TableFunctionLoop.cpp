@@ -59,9 +59,8 @@ namespace DB
             {
                 String id_name = id->name();
 
+                /// extra parts are a table path inside the database: db.ns1.ns2.table
                 size_t dot_pos = id_name.find('.');
-                if (id_name.find('.', dot_pos + 1) != String::npos)
-                    throw Exception(ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "There are more than one dot");
                 if (dot_pos != String::npos)
                 {
                     loop_database_name = id_name.substr(0, dot_pos);

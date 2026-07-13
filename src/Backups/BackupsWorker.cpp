@@ -336,25 +336,56 @@ private:
 namespace
 {
 
-/// a backup-source qualifier that isn't a database selects a table path in the current database
+/// a qualifier that isn't a database selects a table path in the current database
 void canonicalizeBackupElements(ASTBackupQuery::Elements & elements, const String & current_database)
 {
     for (auto & element : elements)
     {
-        if (element.type != ASTBackupQuery::TABLE || element.database_name.empty())
-            continue;
-        auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
-            StorageID(element.database_name, element.table_name), current_database);
-        if (folded.table_name == element.table_name)
-            continue;
-        /// AS defaults to the source name; keep them in sync when not explicitly set
-        if (element.new_database_name == element.database_name && element.new_table_name == element.table_name)
+        if (element.type == ASTBackupQuery::ALL)
         {
-            element.new_database_name = folded.database_name;
-            element.new_table_name = folded.table_name;
+            std::set<DatabaseAndTableName> folded_except_tables;
+            for (const auto & except_table : element.except_tables)
+            {
+                if (except_table.first.empty())
+                {
+                    folded_except_tables.emplace(except_table);
+                    continue;
+                }
+                auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
+                    StorageID(except_table.first, except_table.second), current_database);
+                folded_except_tables.emplace(DatabaseAndTableName{folded.database_name, folded.table_name});
+            }
+            element.except_tables = std::move(folded_except_tables);
+            continue;
         }
-        element.database_name = folded.database_name;
-        element.table_name = folded.table_name;
+
+        if (element.type != ASTBackupQuery::TABLE)
+            continue;
+
+        const bool new_name_matches_source
+            = element.new_database_name == element.database_name && element.new_table_name == element.table_name;
+
+        if (!element.database_name.empty())
+        {
+            auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
+                StorageID(element.database_name, element.table_name), current_database);
+            element.database_name = folded.database_name;
+            element.table_name = folded.table_name;
+        }
+
+        /// AS defaults to the source name; an explicitly different AS target folds the same way
+        if (new_name_matches_source)
+        {
+            element.new_database_name = element.database_name;
+            element.new_table_name = element.table_name;
+        }
+        else if (!element.new_database_name.empty())
+        {
+            auto folded_new = DatabaseCatalog::instance().applyNamespaceQualifier(
+                StorageID(element.new_database_name, element.new_table_name), current_database);
+            element.new_database_name = folded_new.database_name;
+            element.new_table_name = folded_new.table_name;
+        }
     }
 }
 
@@ -1137,6 +1168,7 @@ void BackupsWorker::doRestore(
     /// under a namespace scope pin the names now: remote hosts and the access check below
     /// cannot reproduce the session scope
     const auto current_database_info = context->getCurrentDatabaseInfo();
+    canonicalizeBackupElements(restore_query->elements, current_database_info.database);
     if (!current_database_info.table_prefix.empty())
         restore_query->setCurrentDatabase(current_database_info);
 
