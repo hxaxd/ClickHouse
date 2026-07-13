@@ -19,6 +19,7 @@
 #include <Interpreters/DatabaseAndTableWithAlias.h>
 #include <Interpreters/IdentifierSemantic.h>
 #include <Interpreters/Context.h>
+#include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/ExternalDictionariesLoader.h>
 #include <Interpreters/misc.h>
 #include <set>
@@ -179,9 +180,21 @@ private:
 
     void visit(const ASTTableIdentifier & identifier, ASTPtr & ast) const
     {
-        /// Already has database.
         if (identifier.compound())
+        {
+            /// a qualifier that isn't a database selects a namespace inside the current
+            /// database; persist the canonical form so the reference never re-interprets
+            auto table_id = identifier.getTableId();
+            auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(table_id, database_name);
+            if (folded.table_name != table_id.table_name)
+            {
+                auto qualified_identifier = make_intrusive<ASTTableIdentifier>(folded.database_name, folded.table_name);
+                if (!identifier.alias.empty())
+                    qualified_identifier->setAlias(identifier.alias);
+                ast = qualified_identifier;
+            }
             return;
+        }
         /// There is temporary table with such name, should not be rewritten.
         if (external_tables.contains(identifier.shortName()))
             return;
@@ -331,7 +344,8 @@ private:
             /// The `updatePointerToChild` function replaces the old address with the new one without access, so it is safe to invalidate it in place.
             /// However, just for safety, let's store the old node for a little longer.
             ASTPtr old_node = node;
-            node = make_intrusive<ASTLiteral>(database_name);
+            node = make_intrusive<ASTLiteral>(
+                table_prefix.empty() ? database_name : database_name + "." + table_prefix);
 
             if (parent)
             {

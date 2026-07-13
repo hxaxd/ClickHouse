@@ -51,7 +51,13 @@ BlockIO InterpreterUndropQuery::executeToTable(ASTUndropQuery & query)
     auto context = getContext();
     if (table_id.database_name.empty())
     {
-        table_id.database_name = context->getCurrentDatabase();
+        const auto database_info = context->getCurrentDatabaseInfo();
+        table_id.database_name = database_info.database;
+        if (!database_info.table_prefix.empty())
+        {
+            table_id.table_name = database_info.table_prefix + "." + table_id.table_name;
+            query.setTable(table_id.table_name);
+        }
         query.setDatabase(table_id.database_name);
     }
 

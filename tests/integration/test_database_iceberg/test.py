@@ -2359,14 +2359,22 @@ def test_namespace_prefix_show_tables_scope_and_wildcard_policy(started_cluster)
     catalog = load_catalog_impl(started_cluster)
     catalog.create_namespace(ns_1)
     catalog.create_namespace(ns_2)
+    catalog.create_namespace(f"{ns_1}.sub")
     create_table(catalog, ns_1, "scoped_table")
     create_table(catalog, ns_2, "other_table")
+    create_table(catalog, f"{ns_1}.sub", "nested_table")
 
     create_clickhouse_iceberg_database(started_cluster, node, CATALOG_NAME)
 
     tables = node.query(f"USE {CATALOG_NAME}.{ns_1}; SHOW TABLES")
-    assert f"{ns_1}.scoped_table" in tables, f"missing namespace table: {tables}"
+    assert "scoped_table" in tables, f"missing namespace table: {tables}"
+    assert ns_1 not in tables, f"names must be relative to the namespace: {tables}"
     assert ns_2 not in tables, f"SHOW TABLES leaked other namespaces: {tables}"
+    assert "nested_table" not in tables, f"nested namespaces are not direct children: {tables}"
+
+    tables = node.query(f"SHOW TABLES FROM {CATALOG_NAME}.{ns_1}")
+    assert "scoped_table" in tables, f"missing namespace table: {tables}"
+    assert ns_2 not in tables, f"SHOW TABLES FROM leaked other namespaces: {tables}"
 
     _, err = node.query_and_get_answer_with_error(
         f"CREATE ROW POLICY pol_{test_ref} ON {CATALOG_NAME}.{ns_1}.* USING 1 TO ALL"

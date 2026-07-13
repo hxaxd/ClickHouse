@@ -162,19 +162,33 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     if (query.temporary && !query.getFrom().empty())
         throw Exception(ErrorCodes::SYNTAX_ERROR, "The `FROM` and `TEMPORARY` cannot be used together in `SHOW TABLES`");
 
-    String database = getContext()->resolveDatabase(query.getFrom());
+    String database;
+    String table_namespace;
+    if (query.getFrom().empty())
+    {
+        const auto current_db_info = getContext()->getCurrentDatabaseInfo();
+        database = getContext()->resolveDatabase("");
+        table_namespace = current_db_info.table_prefix;
+    }
+    else
+    {
+        /// SHOW TABLES FROM catalog.namespace
+        std::tie(database, table_namespace) = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(query.getFrom());
+    }
     DatabaseCatalog::instance().assertDatabaseExists(database);
 
     WriteBufferFromOwnString rewritten_query;
 
+    /// inside a namespace show names relative to it, and only direct children
+    const bool scoped = !table_namespace.empty() && !query.dictionaries && !query.temporary;
+    const String display_name = scoped
+        ? fmt::format("substring(name, {})", table_namespace.size() + 2)
+        : "name";
+
     if (query.full)
-    {
-        rewritten_query << "SELECT name, engine FROM system.";
-    }
+        rewritten_query << "SELECT " << display_name << " AS name, engine FROM system.";
     else
-    {
-        rewritten_query << "SELECT name FROM system.";
-    }
+        rewritten_query << "SELECT " << display_name << " AS name FROM system.";
 
     if (query.dictionaries)
         rewritten_query << "dictionaries ";
@@ -192,18 +206,14 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     else
     {
         rewritten_query << "database = " << DB::quote << database;
-        /// Under `USE db.namespace` (DataLakeCatalog) list only the selected namespace.
-        if (query.getFrom().empty())
-        {
-            const auto current_db_info = getContext()->getCurrentDatabaseInfo();
-            if (!current_db_info.table_prefix.empty())
-                rewritten_query << " AND startsWith(name, " << DB::quote << (current_db_info.table_prefix + ".") << ")";
-        }
+        if (scoped)
+            rewritten_query << " AND startsWith(name, " << DB::quote << (table_namespace + ".")
+                            << ") AND position(" << display_name << ", '.') = 0";
     }
 
     if (!query.like.empty())
         rewritten_query
-            << " AND name "
+            << " AND " << display_name << " "
             << (query.not_like ? "NOT " : "")
             << (query.case_insensitive_like ? "ILIKE " : "LIKE ")
             << DB::quote << query.like;

@@ -7,6 +7,8 @@
 #include <Parsers/ASTIdentifier_fwd.h>
 #include <IO/Operators.h>
 
+#include <algorithm>
+
 
 namespace DB
 {
@@ -86,6 +88,24 @@ public:
     }
 
     const Elements & getElements() const { return elements; }
+
+    /// fold the session table-path prefix into unqualified names
+    void prependUnqualifiedTableNamePrefix(const String & prefix)
+    {
+        auto apply = [&](Table & ref)
+        {
+            if (ref.database || !ref.table)
+                return;
+            ASTPtr renamed = make_intrusive<ASTIdentifier>(prefix + "." + ref.getTable());
+            std::replace(children.begin(), children.end(), ref.table, renamed);
+            ref.table = renamed;
+        };
+        for (auto & elem : elements)
+        {
+            apply(elem.from);
+            apply(elem.to);
+        }
+    }
 
     /** Get the text that identifies this element. */
     String getID(char) const override { return "Rename"; }

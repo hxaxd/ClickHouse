@@ -12,6 +12,7 @@
 #include <Interpreters/DDLTask.h>
 #include <Interpreters/DDLWorker.h>
 #include <Interpreters/DatabaseCatalog.h>
+#include <Common/quoteString.h>
 #include <Interpreters/executeDDLQueryOnCluster.h>
 #include <Parsers/ASTAlterQuery.h>
 #include <Parsers/ASTQueryWithOnCluster.h>
@@ -46,6 +47,7 @@ namespace ErrorCodes
 extern const int NOT_IMPLEMENTED;
 extern const int QUERY_IS_PROHIBITED;
 extern const int LOGICAL_ERROR;
+extern const int BAD_ARGUMENTS;
 }
 
 
@@ -172,11 +174,14 @@ BlockIO executeDDLQueryOnCluster(const ASTPtr & query_ptr_, ContextPtr context, 
                     access_to_check.insert(access_to_check.begin() + i + 1, host_default_databases.size() - 1, element);
                     for (size_t j = 0; j != host_default_databases.size(); ++j)
                     {
-                        /// A host default database "db.namespace" selects a namespace inside a
-                        /// DataLakeCatalog database (best-effort, judged by the local catalog).
-                        const auto [host_database, host_prefix]
-                            = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(host_default_databases[j]);
-                        access_to_check[i + j].replaceEmptyDatabase(CurrentDatabaseInfo{host_database, host_prefix});
+                        /// the initiator cannot tell whether a remote default "a.b" is a database
+                        /// or a namespace inside one, so unqualified names cannot be authorized
+                        if (host_default_databases[j].find('.') != String::npos)
+                            throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                                "Host default database {} may contain a table namespace; "
+                                "qualify the table names in the query explicitly",
+                                backQuoteIfNeed(host_default_databases[j]));
+                        access_to_check[i + j].replaceEmptyDatabase(host_default_databases[j]);
                     }
                     i += host_default_databases.size();
                 }

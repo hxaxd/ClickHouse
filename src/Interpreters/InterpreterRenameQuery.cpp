@@ -36,7 +36,11 @@ InterpreterRenameQuery::InterpreterRenameQuery(const ASTPtr & query_ptr_, Contex
 
 BlockIO InterpreterRenameQuery::execute()
 {
-    const auto & rename = query_ptr->as<const ASTRenameQuery &>();
+    auto & rename = query_ptr->as<ASTRenameQuery &>();
+
+    const auto database_info = getContext()->getCurrentDatabaseInfo();
+    if (!database_info.table_prefix.empty() && !rename.database)
+        rename.prependUnqualifiedTableNamePrefix(database_info.table_prefix);
 
     if (!rename.cluster.empty() && !maybeRemoveOnCluster(query_ptr, getContext()))
     {

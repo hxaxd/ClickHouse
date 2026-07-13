@@ -4,6 +4,7 @@
 
 #include <Parsers/CommonParsers.h>
 #include <Parsers/ParserShowTablesQuery.h>
+#include <Parsers/ASTIdentifier.h>
 #include <Parsers/ExpressionElementParsers.h>
 #include <Parsers/ExpressionListParsers.h>
 #include <Parsers/parseIdentifierOrStringLiteral.h>
@@ -173,8 +174,26 @@ bool ParserShowTablesQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expec
         }
 
         if (s_from.ignore(pos, expected) || s_in.ignore(pos, expected))
+        {
             if (!name_p.parse(pos, database, expected))
                 return false;
+
+            ParserToken dot(TokenType::Dot);
+            String database_name;
+            bool folded = false;
+            while (dot.ignore(pos, expected))
+            {
+                if (!folded && !tryGetIdentifierNameInto(database, database_name))
+                    return false;
+                ASTPtr part;
+                if (!name_p.parse(pos, part, expected))
+                    return false;
+                database_name += "." + getIdentifierName(part);
+                folded = true;
+            }
+            if (folded)
+                database = make_intrusive<ASTIdentifier>(database_name);
+        }
 
         if (s_not.ignore(pos, expected))
             query->not_like = true;
