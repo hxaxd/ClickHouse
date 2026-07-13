@@ -193,16 +193,16 @@ void TableFunctionRemote::parseArguments(const ASTPtr & ast_function, ContextPtr
             }
             else
             {
-                /// currentDatabase() may be a logical namespace name ("db.ns"); it is always
-                /// a database operand, never the db.table shorthand
-                bool database_is_current_database = false;
-                if (const auto * database_function = args[arg_num]->as<ASTFunction>())
-                    database_is_current_database = database_function->name == "currentDatabase";
-
                 args[arg_num] = evaluateConstantExpressionForDatabaseName(args[arg_num], context);
                 database = checkAndGetLiteralArgument<String>(args[arg_num], "database");
 
                 ++arg_num;
+
+                /// the session's logical name ("db.ns", e.g. a folded currentDatabase())
+                /// is a database operand, never the db.table shorthand
+                const auto session_database_info = context->getCurrentDatabaseInfo();
+                const bool database_is_current_database = !session_database_info.table_prefix.empty()
+                    && database == session_database_info.getLogicalName();
 
                 QualifiedTableName qualified_name;
                 if (database_is_current_database)
