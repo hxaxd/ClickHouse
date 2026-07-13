@@ -738,8 +738,18 @@ std::unordered_map<String, CHSetting> serverSettings = {
     {"delta_lake_throw_on_engine_predicate_error", trueOrFalseSettingNoOracle},
     {"describe_include_subcolumns", trueOrFalseSettingNoOracle},
     {"describe_include_virtual_columns", trueOrFalseSettingNoOracle},
+    {"dictionary_lazy_load",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &)
+         {
+             static const DB::Strings choices = {"'auto'", "0", "1"};
+             return rg.pickRandomly(choices);
+         },
+         {},
+         false)},
     {"dictionary_use_async_executor", trueOrFalseSettingNoOracle},
     {"dictionary_validate_primary_key_type", trueOrFalseSettingNoOracle},
+    {"discard_query_data", trueOrFalseSettingNoOracle},
     {"distributed_aggregation_memory_efficient", trueOrFalseSetting},
     {"distributed_background_insert_batch", trueOrFalseSettingNoOracle},
     {"distributed_background_insert_split_batch_on_failure", trueOrFalseSettingNoOracle},
@@ -1278,6 +1288,12 @@ static std::unordered_map<String, CHSetting> serverSettings2 = {
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 10)); }, {"0", "1", "5", "10"}, false)},
     {"optimize_on_insert", trueOrFalseSetting},
     {"optimize_or_like_chain", trueOrFalseSetting},
+    {"optimize_or_like_chain_min_patterns",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 12)); }, {"0", "1", "9", "10"}, false)},
+    {"optimize_or_like_chain_min_substrings",
+     CHSetting(
+         [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 8)); }, {"0", "1", "4", "5"}, false)},
     {"optimize_skip_unused_shards_limit",
      CHSetting(
          [](RandomGenerator & rg, FuzzConfig &) { return std::to_string(rg.randomInt<uint32_t>(0, 30)); }, {"0", "1", "5", "10"}, false)},
