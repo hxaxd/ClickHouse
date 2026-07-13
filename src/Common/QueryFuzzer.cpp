@@ -1686,9 +1686,15 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
     else if (create.attach_as_replicated.has_value())
         create.attach_as_replicated.reset();
 
-    /// Toggle EMPTY: CREATE ... EMPTY AS SELECT skips inserting the initial data.
-    /// EMPTY and CLONE are mutually exclusive in the parser.
-    if (create.select && fuzz_rand() % 20 == 0)
+    /// Toggle EMPTY (skips the initial insert), mutually exclusive with CLONE. Only regular
+    /// tables, window views, inner-engine MVs and refreshable TO-target MVs accept it;
+    /// ordinary views and plain TO-target MVs reject it, so restrict the toggle to the rest.
+    const bool empty_form_ok = create.select
+        && (create.is_window_view
+            || create.is_materialized_view_with_inner_table()
+            || (create.is_materialized_view_with_external_target() && create.refresh_strategy)
+            || (!create.isView() && !create.is_dictionary));
+    if (empty_form_ok && fuzz_rand() % 20 == 0)
     {
         create.is_create_empty = !create.is_create_empty;
         if (create.is_create_empty)
@@ -7029,9 +7035,20 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             if (create_user->alter && fuzz_rand() % 20 == 0)
                 create_user->add_identified_with = !create_user->add_identified_with;
             normalizeAccessEntityMode(create_user->alter, create_user->if_exists, create_user->if_not_exists, create_user->or_replace);
-            /// Leaving ALTER clears the ALTER-only auth modifiers, whether just flipped or pre-existing
-            if (!create_user->alter)
+            /// Payloads are verb-specific: ROLE and bare SETTINGS are CREATE-only, while RENAME TO,
+            /// ADD/DROP HOST, ADD/MODIFY/DROP SETTINGS and the auth modifiers are ALTER-only. Drop the
+            /// ones that do not match the final verb so the statement stays reparseable both ways.
+            if (create_user->alter)
             {
+                create_user->roles.reset();
+                create_user->settings.reset();
+            }
+            else
+            {
+                create_user->new_name.reset();
+                create_user->add_hosts.reset();
+                create_user->remove_hosts.reset();
+                create_user->alter_settings.reset();
                 create_user->reset_authentication_methods_to_new = false;
                 create_user->add_identified_with = false;
             }
@@ -7054,6 +7071,14 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             if (fuzz_rand() % 10 == 0)
                 create_role->or_replace = !create_role->or_replace;
             normalizeAccessEntityMode(create_role->alter, create_role->if_exists, create_role->if_not_exists, create_role->or_replace);
+            /// RENAME TO and ADD/MODIFY/DROP SETTINGS are ALTER-only; bare SETTINGS is CREATE-only.
+            if (create_role->alter)
+                create_role->settings.reset();
+            else
+            {
+                create_role->new_name.clear();
+                create_role->alter_settings.reset();
+            }
         }
     }
     else if (auto * create_profile = typeid_cast<ASTCreateSettingsProfileQuery *>(ast.get()))
@@ -7070,6 +7095,14 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 create_profile->or_replace = !create_profile->or_replace;
             normalizeAccessEntityMode(
                 create_profile->alter, create_profile->if_exists, create_profile->if_not_exists, create_profile->or_replace);
+            /// RENAME TO and ADD/MODIFY/DROP SETTINGS are ALTER-only; bare SETTINGS is CREATE-only.
+            if (create_profile->alter)
+                create_profile->settings.reset();
+            else
+            {
+                create_profile->new_name.clear();
+                create_profile->alter_settings.reset();
+            }
         }
     }
     else if (auto * create_policy = typeid_cast<ASTCreateRowPolicyQuery *>(ast.get()))
@@ -7086,6 +7119,9 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 create_policy->or_replace = !create_policy->or_replace;
             normalizeAccessEntityMode(
                 create_policy->alter, create_policy->if_exists, create_policy->if_not_exists, create_policy->or_replace);
+            /// RENAME TO is ALTER-only.
+            if (!create_policy->alter)
+                create_policy->new_short_name.clear();
         }
         if (create_policy->is_restrictive.has_value() && fuzz_rand() % 10 == 0)
             create_policy->is_restrictive = !*create_policy->is_restrictive;
@@ -7106,6 +7142,9 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             if (fuzz_rand() % 10 == 0)
                 create_quota->or_replace = !create_quota->or_replace;
             normalizeAccessEntityMode(create_quota->alter, create_quota->if_exists, create_quota->if_not_exists, create_quota->or_replace);
+            /// RENAME TO is ALTER-only.
+            if (!create_quota->alter)
+                create_quota->new_name.clear();
         }
         for (auto & limits : create_quota->all_limits)
         {
