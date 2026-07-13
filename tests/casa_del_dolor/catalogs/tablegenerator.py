@@ -160,12 +160,16 @@ class LakeTableGenerator:
                 or (field.name in table.columns and table.columns[field.name].generated)
             )
             prev = table.columns.get(field.name)
+            # Only inherit the recorded ClickHouse type while the Spark type is unchanged; an
+            # ALTER COLUMN ... TYPE makes the old clickhouse_type stale, which would mislead the
+            # _LOSSY_CH_INT_RE hash-comparability check. Clear it on a type change (no CH origin).
+            inherited_ch_type = prev.clickhouse_type if prev and prev.spark_type == field.dataType else ""
             new_columns[field.name] = SparkColumn(
                 field.name,
                 field.dataType,
                 field.nullable,
                 generated,
-                prev.clickhouse_type if prev else "",
+                inherited_ch_type,
             )
         table.columns = new_columns
         table.check_constraints.clear()

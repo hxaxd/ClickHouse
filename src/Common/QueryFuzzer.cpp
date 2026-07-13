@@ -6057,8 +6057,11 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
             case ASTAlterCommand::ATTACH_PARTITION:
             case ASTAlterCommand::DROP_DETACHED_PARTITION:
             case ASTAlterCommand::FORGET_PARTITION:
-                /// DROP PARTITION <-> FORGET PARTITION carry the same payload (a bare partition)
-                if ((alter_cmd->type == ASTAlterCommand::DROP_PARTITION || alter_cmd->type == ASTAlterCommand::FORGET_PARTITION)
+                /// DROP PARTITION <-> FORGET PARTITION carry the same PARTITION <expr> payload.
+                /// Gated on !part: DROP/DETACH PART hold a string part name, which FORGET PARTITION
+                /// (no PART form) cannot reparse.
+                if (!alter_cmd->part
+                    && (alter_cmd->type == ASTAlterCommand::DROP_PARTITION || alter_cmd->type == ASTAlterCommand::FORGET_PARTITION)
                     && fuzz_rand() % 20 == 0)
                     alter_cmd->type = alter_cmd->type == ASTAlterCommand::DROP_PARTITION ? ASTAlterCommand::FORGET_PARTITION
                                                                                          : ASTAlterCommand::DROP_PARTITION;
@@ -6271,15 +6274,34 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * rename_query = typeid_cast<ASTRenameQuery *>(ast.get()))
     {
-        /// Turn RENAME into EXCHANGE, or a table rename into a database/dictionary rename.
-        if (fuzz_rand() % 10 == 0)
-            rename_query->exchange = !rename_query->exchange;
-        if (fuzz_rand() % 10 == 0)
-            rename_query->database = !rename_query->database;
+        const auto & elems = rename_query->getElements();
+
+        /// RENAME TABLE <-> RENAME DICTIONARY: both use the same from/to table identifiers.
         if (fuzz_rand() % 10 == 0)
             rename_query->dictionary = !rename_query->dictionary;
-        if (fuzz_rand() % 20 == 0)
-            rename_query->rename_if_cannot_exchange = !rename_query->rename_if_cannot_exchange;
+
+        /// RENAME <-> EXCHANGE. EXCHANGE does not accept IF EXISTS (the parser only reads it on the
+        /// non-exchange form), so only enable it when no element carries IF EXISTS; disabling is safe.
+        if (fuzz_rand() % 10 == 0)
+        {
+            if (rename_query->exchange)
+                rename_query->exchange = false;
+            else if (std::none_of(elems.begin(), elems.end(), [](const auto & e) { return e.if_exists; }))
+                rename_query->exchange = true;
+        }
+
+        /// RENAME DATABASE formats only element[0]'s from/to database (dereferenced unconditionally)
+        /// and has no table slots, while the table form requires from/to table. Only switch when the
+        /// slots the target form needs are already populated, else formatting derefs a null field.
+        if (fuzz_rand() % 10 == 0 && !elems.empty())
+        {
+            const auto & e0 = elems.front();
+            if (!rename_query->database && e0.from.database && e0.to.database)
+                rename_query->database = true;
+            else if (rename_query->database && e0.from.table && e0.to.table)
+                rename_query->database = false;
+        }
+
         /// The from/to database and table identifiers are registered as children.
         fuzz(rename_query->children);
     }
@@ -7006,8 +7028,7 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 create_user->reset_authentication_methods_to_new = !create_user->reset_authentication_methods_to_new;
             if (create_user->alter && fuzz_rand() % 20 == 0)
                 create_user->add_identified_with = !create_user->add_identified_with;
-            normalizeAccessEntityMode(
-                create_user->alter, create_user->if_exists, create_user->if_not_exists, create_user->or_replace);
+            normalizeAccessEntityMode(create_user->alter, create_user->if_exists, create_user->if_not_exists, create_user->or_replace);
             /// Leaving ALTER clears the ALTER-only auth modifiers, whether just flipped or pre-existing
             if (!create_user->alter)
             {
@@ -7032,8 +7053,7 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 create_role->if_not_exists = !create_role->if_not_exists;
             if (fuzz_rand() % 10 == 0)
                 create_role->or_replace = !create_role->or_replace;
-            normalizeAccessEntityMode(
-                create_role->alter, create_role->if_exists, create_role->if_not_exists, create_role->or_replace);
+            normalizeAccessEntityMode(create_role->alter, create_role->if_exists, create_role->if_not_exists, create_role->or_replace);
         }
     }
     else if (auto * create_profile = typeid_cast<ASTCreateSettingsProfileQuery *>(ast.get()))
@@ -7085,8 +7105,7 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
                 create_quota->if_not_exists = !create_quota->if_not_exists;
             if (fuzz_rand() % 10 == 0)
                 create_quota->or_replace = !create_quota->or_replace;
-            normalizeAccessEntityMode(
-                create_quota->alter, create_quota->if_exists, create_quota->if_not_exists, create_quota->or_replace);
+            normalizeAccessEntityMode(create_quota->alter, create_quota->if_exists, create_quota->if_not_exists, create_quota->or_replace);
         }
         for (auto & limits : create_quota->all_limits)
         {
