@@ -250,7 +250,8 @@ BlockIO InterpreterShowTablesQuery::execute()
         return res;
     }
     auto rewritten_query = getRewrittenQuery();
-    String database = getContext()->resolveDatabase(query.getFrom());
+    /// FROM may carry a namespace suffix: catalog.namespace
+    String database = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(getContext()->resolveDatabase(query.getFrom())).first;
     auto query_context = Context::createCopy(getContext());
     query_context->makeQueryContext();
     query_context->setCurrentQueryId("");
