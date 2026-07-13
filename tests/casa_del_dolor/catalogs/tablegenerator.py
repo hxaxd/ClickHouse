@@ -280,6 +280,9 @@ class LakeTableGenerator:
                     from pyspark.sql.types import _parse_datatype_string
 
                     sc.spark_type = _parse_datatype_string(new_type_str)
+                    # The Spark type changed, so the recorded ClickHouse type is stale; clear it so
+                    # _LOSSY_CH_INT_RE no longer treats a widened column as a CH-origin lossy int.
+                    sc.clickhouse_type = ""
                     return ""
         return ""
 
