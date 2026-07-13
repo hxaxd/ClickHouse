@@ -1,0 +1,45 @@
+-- enable_analyzer = 0
+-- column qualified by the namespace path
+1
+2
+-- column qualified by database and namespace path
+1
+2
+-- qualified asterisk with a namespace path
+1	a
+2	b
+-- qualified asterisk with database and namespace path
+1	a
+2	b
+-- alias wins over the path
+1
+2
+-- join of two namespace tables
+1	10
+2	20
+-- enable_analyzer = 1
+-- column qualified by the namespace path
+1
+2
+-- column qualified by database and namespace path
+1
+2
+-- qualified asterisk with a namespace path
+1	a
+2	b
+-- qualified asterisk with database and namespace path
+1	a
+2	b
+-- alias wins over the path
+1
+2
+-- join of two namespace tables
+1	10
+2	20
+-- identifiers from query parameters
+2
+2
+-- JSON subcolumn delimiters are untouched in column context
+7
+-- JSON subcolumn delimiters are not part of a table path
+1

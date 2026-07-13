@@ -1,0 +1,16 @@
+-- SHOW TABLES under a namespace: relative names, direct children only
+alpha
+beta
+-- LIKE applies to the relative name
+alpha
+-- SHOW TABLES FROM database.namespace
+alpha
+beta
+-- nested namespace
+gamma
+-- without a namespace the full names are shown
+ns.alpha
+ns.beta
+ns.sub.gamma
+other.delta
+plain
