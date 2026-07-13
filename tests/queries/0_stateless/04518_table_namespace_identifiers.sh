@@ -56,6 +56,10 @@ $CLICKHOUSE_CLIENT --param_n="ns" --param_t="t" \
 $CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" --param_t="created_p" \
     -q "CREATE TABLE {d:Identifier}.{n:Identifier}.{t:Identifier} (x Int8) ENGINE = Memory"
 $CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.created_p\`"
+$CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" --param_t="created_p" \
+    -q "INSERT INTO {d:Identifier}.{n:Identifier}.{t:Identifier} VALUES (9)"
+$CLICKHOUSE_CLIENT -q "SELECT x FROM $db.\`ns.created_p\`"
+$CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" -q "SHOW TABLES FROM {d:Identifier}.{n:Identifier} LIKE 'created%'"
 
 echo "-- joinGet with a namespace-path table string"
 $CLICKHOUSE_CLIENT -m -q "

@@ -1,4 +1,5 @@
 #include <Databases/DDLDependencyVisitor.h>
+#include <Interpreters/DatabaseCatalog.h>
 #include <Dictionaries/getDictionaryConfigurationFromAST.h>
 #include <Databases/removeWhereConditionPlaceholder.h>
 #include <Interpreters/ApplyWithSubqueryVisitor.h>
@@ -507,18 +508,21 @@ namespace
         }
 
         /// A dotted name may resolve at run time either as database.table or as a table
-        /// path in the current database. Record the alternative interpretations of "a.b":
-        /// {a, b} comes from addQualifiedNameFromArgument, {current, a.b} is added here.
+        /// path in the current database. When the qualifier is an existing database it wins,
+        /// like at run time; otherwise record the table-path interpretation too - a dependency
+        /// on a table that doesn't exist is simply ignored, and the database may load later.
         void addTablePathCandidatesFromArgument(const ASTFunction & function, size_t arg_idx)
         {
             auto name = tryGetStringFromArgument(function, arg_idx);
             if (!name || name->empty())
                 return;
-            if (name->find('.') == String::npos || name->front() == '.' || name->back() == '.')
+            const auto first_dot = name->find('.');
+            if (first_dot == String::npos || first_dot == 0 || name->back() == '.')
+                return;
+            if (DatabaseCatalog::instance().isDatabaseExist(name->substr(0, first_dot)))
                 return;
             dependencies.emplace(QualifiedTableName{current_database, *name});
             /// multipart form db.ns.jt: {db, ns.jt}
-            const auto first_dot = name->find('.');
             if (name->find('.', first_dot + 1) != String::npos)
                 dependencies.emplace(QualifiedTableName{name->substr(0, first_dot), name->substr(first_dot + 1)});
         }

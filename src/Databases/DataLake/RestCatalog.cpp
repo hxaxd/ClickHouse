@@ -740,10 +740,11 @@ DB::Names RestCatalog::getTables() const
 
 bool RestCatalog::existsNamespace(const std::string & namespace_name) const
 {
-    /// one listing of the parent instead of walking the whole namespace tree
+    /// one listing of the parent instead of walking the whole namespace tree;
+    /// a missing parent means the namespace doesn't exist either
     const auto pos = namespace_name.rfind('.');
     const auto parent = pos == std::string::npos ? std::string{} : namespace_name.substr(0, pos);
-    const auto children = listChildNamespaces(parent);
+    const auto children = listChildNamespaces(parent, /*missing_parent_is_empty*/ true);
     return std::find(children.begin(), children.end(), namespace_name) != children.end();
 }
 
@@ -817,7 +818,7 @@ bool RestCatalog::hasFlatNamespaces() const
         || type == DB::DatabaseDataLakeCatalogType::ICEBERG_DELTA_SHARING;
 }
 
-RestCatalog::Namespaces RestCatalog::listChildNamespaces(const std::string & base_namespace) const
+RestCatalog::Namespaces RestCatalog::listChildNamespaces(const std::string & base_namespace, bool missing_parent_is_empty) const
 {
     Poco::URI::QueryParameters base_params;
     if (!base_namespace.empty())
@@ -874,6 +875,10 @@ RestCatalog::Namespaces RestCatalog::listChildNamespaces(const std::string & bas
     }
     catch (const DB::HTTPException & e)
     {
+        /// for an existence probe a missing parent just means "does not exist"
+        if (missing_parent_is_empty && e.code() == Poco::Net::HTTPResponse::HTTPStatus::HTTP_NOT_FOUND)
+            return {};
+
         std::string message = fmt::format(
             "Received error while fetching list of namespaces from iceberg catalog `{}`. ",
             warehouse);

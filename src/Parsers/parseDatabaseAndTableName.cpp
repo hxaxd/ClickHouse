@@ -11,29 +11,47 @@ namespace DB
 bool foldNamespacesIntoTableName(IParser::Pos & pos, Expected & expected, ASTPtr & table)
 {
     ParserToken s_dot(TokenType::Dot);
-    ParserIdentifier part_parser;
+    ParserIdentifier part_parser(/*allow_query_parameter*/ true);
 
-    String table_name;
-    /// A query-parameter identifier extracts as an empty name.
-    bool table_has_name = tryGetIdentifierNameInto(table, table_name) && !table_name.empty();
+    std::vector<String> parts;
+    ASTs params;
+    auto append_part = [&](const ASTPtr & node)
+    {
+        parts.push_back(getIdentifierName(node));
+        /// a query-parameter part extracts as an empty name
+        if (parts.back().empty())
+            params.push_back(node->as<ASTIdentifier>()->getParam());
+    };
 
     bool folded = false;
     while (s_dot.ignore(pos, expected))
     {
-        /// A query-parameter table identifier cannot be folded into a namespace-qualified name.
-        if (!table_has_name)
-            return false;
+        if (!folded)
+            append_part(table);
 
         ASTPtr part;
         if (!part_parser.parse(pos, part, expected))
             return false;
 
-        table_name += "." + getIdentifierName(part);
+        append_part(part);
         folded = true;
     }
 
-    if (folded)
+    if (!folded)
+        return true;
+
+    if (params.empty())
+    {
+        String table_name = parts[0];
+        for (size_t i = 1; i < parts.size(); ++i)
+            table_name += "." + parts[i];
         table = make_intrusive<ASTIdentifier>(table_name);
+    }
+    else
+    {
+        /// a compound identifier keeps parameter children; substitution fills them later
+        table = make_intrusive<ASTIdentifier>(std::move(parts), false, std::move(params));
+    }
 
     return true;
 }

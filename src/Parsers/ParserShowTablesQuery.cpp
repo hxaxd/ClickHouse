@@ -179,20 +179,28 @@ bool ParserShowTablesQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expec
                 return false;
 
             ParserToken dot(TokenType::Dot);
-            String database_name;
+            std::vector<String> parts;
+            ASTs params;
+            auto append_part = [&](const ASTPtr & part_node)
+            {
+                parts.push_back(getIdentifierName(part_node));
+                if (parts.back().empty())
+                    params.push_back(part_node->as<ASTIdentifier>()->getParam());
+            };
             bool folded = false;
             while (dot.ignore(pos, expected))
             {
-                if (!folded && !tryGetIdentifierNameInto(database, database_name))
-                    return false;
+                if (!folded)
+                    append_part(database);
                 ASTPtr part;
                 if (!name_p.parse(pos, part, expected))
                     return false;
-                database_name += "." + getIdentifierName(part);
+                append_part(part);
                 folded = true;
             }
+            /// a compound identifier keeps parameter children; substitution fills them later
             if (folded)
-                database = make_intrusive<ASTIdentifier>(database_name);
+                database = make_intrusive<ASTIdentifier>(std::move(parts), false, std::move(params));
         }
 
         if (s_not.ignore(pos, expected))

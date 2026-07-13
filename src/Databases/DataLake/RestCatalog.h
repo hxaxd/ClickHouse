@@ -161,7 +161,7 @@ protected:
 
     /// List the immediate child namespaces directly under `base_namespace`
     /// (single level, not recursive). An empty base lists the root namespaces.
-    Namespaces listChildNamespaces(const std::string & base_namespace) const;
+    Namespaces listChildNamespaces(const std::string & base_namespace, bool missing_parent_is_empty = false) const;
 
     Namespaces parseNamespaces(DB::ReadBuffer & buf, const std::string & base_namespace, String & next_page_token) const;
 
