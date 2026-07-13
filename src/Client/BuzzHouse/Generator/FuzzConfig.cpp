@@ -1,13 +1,11 @@
 #include <Client/BuzzHouse/Generator/FuzzConfig.h>
 
 #include <ranges>
-#include <sstream>
 #include <IO/copyData.h>
 #include <fmt/ranges.h>
+#include <Common/Base64.h>
 #include <Common/Exception.h>
 #include <Common/formatReadable.h>
-
-#include <Poco/Base64Decoder.h>
 
 namespace DB
 {
@@ -1205,12 +1203,7 @@ String FuzzConfig::tableGetRandomPartitionValue(const uint64_t rand_val, const S
         if (!encoded.empty() && encoded.back() == '\r')
             encoded.pop_back();
         if (!encoded.empty())
-        {
-            std::istringstream istr(encoded);
-            Poco::Base64Decoder decoder(istr);
-
-            res.assign(std::istreambuf_iterator<char>(decoder), std::istreambuf_iterator<char>());
-        }
+            res = DB::base64Decode(encoded);
     }
     /// Only emit values that are re-parseable as a bare `PARTITION <expr>`: the parenthesised tuple
     /// form for composite/typed keys (e.g. `(202101, 'x')`), which ClickHouse always renders quoted,
