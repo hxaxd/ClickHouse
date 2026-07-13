@@ -6,6 +6,8 @@
 #include <Interpreters/FileCache/FileCacheFactory.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseCatalog.h>
+#include <Databases/IDatabase.h>
+#include <base/find_symbols.h>
 #include <Interpreters/InterpreterFactory.h>
 #include <Interpreters/InterpreterShowTablesQuery.h>
 #include <Interpreters/executeQuery.h>
@@ -174,6 +176,15 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     if (query.dictionaries && !table_namespace.empty())
         throw Exception(ErrorCodes::UNKNOWN_DATABASE, "There is no database {} to show dictionaries from",
             backQuoteIfNeed(query.getFrom()));
+
+    /// an explicit FROM names the namespace anew, so validate it like USE does;
+    /// the session prefix was already validated when it was selected
+    if (!query.getFrom().empty() && !table_namespace.empty())
+    {
+        Names namespace_parts;
+        splitInto<'.'>(namespace_parts, table_namespace);
+        DatabaseCatalog::instance().getDatabase(database)->validateTableNamespace(namespace_parts, getContext());
+    }
 
     WriteBufferFromOwnString rewritten_query;
 

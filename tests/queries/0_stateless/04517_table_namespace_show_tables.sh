@@ -29,6 +29,9 @@ $CLICKHOUSE_CLIENT -q "SHOW TABLES FROM $db.ns"
 echo "-- nested namespace"
 $CLICKHOUSE_CLIENT -q "SHOW TABLES FROM $db.ns.sub"
 
+echo "-- FROM with a missing namespace is rejected like USE"
+$CLICKHOUSE_CLIENT -q "SHOW TABLES FROM $db.no_such_namespace" 2>&1 | grep -m1 -c "UNKNOWN_TABLE"
+
 echo "-- dictionaries have no namespaces"
 $CLICKHOUSE_CLIENT -q "SHOW DICTIONARIES FROM $db.ns" 2>&1 | grep -m1 -c "UNKNOWN_DATABASE"
 

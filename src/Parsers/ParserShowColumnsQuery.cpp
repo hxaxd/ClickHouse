@@ -62,11 +62,9 @@ bool ParserShowColumnsQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expe
                 return false;
         if (from2)
         {
-            /// extra parts of the database operand are a namespace path: FROM t FROM db.ns == db.`ns.t`
-            const auto & database_parts = from2->as<ASTIdentifier &>().name_parts;
-            query->database = database_parts[0];
-            for (size_t i = database_parts.size(); i > 1; --i)
-                query->table = database_parts[i - 1] + "." + query->table;
+            /// keep the operand as one (possibly dotted) database name;
+            /// runtime resolution decides between a real database and a namespace
+            tryGetIdentifierNameInto(from2, query->database);
         }
     }
 

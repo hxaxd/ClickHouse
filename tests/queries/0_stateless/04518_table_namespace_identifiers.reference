@@ -58,6 +58,7 @@ one
 -- fully qualified namespace paths in joinGet and loop
 one
 1
+1
 -- SHOW COLUMNS with a separate namespaced FROM
 2
 -- UNDROP parses a multipart table path
