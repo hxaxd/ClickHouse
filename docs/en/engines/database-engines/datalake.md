@@ -101,9 +101,18 @@ USE catalog_name.namespace;
 SELECT * FROM table;
 ```
 
-The namespace prefix is only applied when the current database is a
-`DataLakeCatalog` database, and it is cleared as soon as you switch to another
-database with `USE`. Selecting the catalog without a namespace still lets you
+`USE catalog_name.namespace` validates that the namespace exists in the
+catalog and fails otherwise. While a namespace is selected, `currentDatabase`
+returns the combined name (`catalog_name.namespace`), and `SHOW TABLES` lists
+only the direct children of the namespace, by their names relative to it.
+The prefix is cleared as soon as you switch to another database with `USE`.
+
+The same mechanism works for regular databases (`Atomic`, `Memory`), where a
+dot inside a table name lexically defines a namespace: a table named
+`ns.table` in database `db` can be addressed as `db.ns.table` or through
+`USE db.ns`.
+
+Selecting the catalog without a namespace still lets you
 reference tables by their namespace-qualified name:
 
 ```sql
