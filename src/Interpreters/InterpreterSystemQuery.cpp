@@ -351,6 +351,16 @@ BlockIO InterpreterSystemQuery::execute()
 
     if (!query.cluster.empty())
     {
+        /// the shipped query bypasses local name resolution, so canonicalize the name here
+        if (query.table && query.type != ASTSystemQuery::Type::RELOAD_DICTIONARY)
+        {
+            auto scoped = DatabaseCatalog::instance().applyNamespaceScope(
+                StorageID(query.getDatabase(), query.getTable()), getContext()->getCurrentDatabaseInfo());
+            if (!scoped.database_name.empty())
+                query.setDatabase(scoped.database_name);
+            query.setTable(scoped.table_name);
+        }
+
         DDLQueryOnClusterParams params;
         params.access_to_check = getRequiredAccessForDDLOnCluster();
         return executeDDLQueryOnCluster(query_ptr, getContext(), params);

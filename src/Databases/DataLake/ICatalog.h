@@ -180,6 +180,10 @@ public:
     /// return every nested level; flat catalogs their single-level names).
     virtual Namespaces getNamespaces() const = 0;
 
+    /// Check that a namespace exists. The default enumerates everything;
+    /// catalogs with a targeted lookup should override.
+    virtual bool existsNamespace(const std::string & namespace_name) const;
+
     /// Fetch fully-qualified table names, restricted by the `name` predicate (see
     /// `TableNameFilter`). Default impl prunes namespaces via `getNamespaces()`.
     virtual DB::Names getTables(const TableNameFilter & filter) const;

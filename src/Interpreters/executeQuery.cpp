@@ -476,7 +476,7 @@ QueryLogElement logQueryStart(
     elem.query_start_time = timeInSeconds(query_start_time);
     elem.query_start_time_microseconds = timeInMicroseconds(query_start_time);
 
-    elem.current_database = context->getCurrentDatabase();
+    elem.current_database = context->getCurrentDatabaseInfo().getLogicalName();
     elem.query = query_for_logging;
     if (query_ast && settings[Setting::log_formatted_queries])
         elem.formatted_query = query_ast->formatWithSecretsOneLine();
@@ -917,7 +917,7 @@ void logExceptionBeforeStart(
     elem.query_start_time_microseconds = client_info.initial_query_start_time_microseconds;
     elem.query_duration_ms = elapsed_milliseconds;
 
-    elem.current_database = context->getCurrentDatabase();
+    elem.current_database = context->getCurrentDatabaseInfo().getLogicalName();
     elem.query = query_for_logging;
     elem.normalized_query_hash = normalized_query_hash;
 

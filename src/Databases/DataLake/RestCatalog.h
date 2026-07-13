@@ -49,6 +49,8 @@ public:
 
     bool empty() const override;
 
+    bool existsNamespace(const std::string & namespace_name) const override;
+
     DB::Names getTables() const override;
 
     Namespaces getNamespaces() const override;

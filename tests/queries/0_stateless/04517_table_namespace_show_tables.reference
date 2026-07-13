@@ -3,6 +3,8 @@ alpha
 beta
 -- LIKE applies to the relative name
 alpha
+-- WHERE applies to the relative name, same as LIKE
+alpha
 -- SHOW TABLES FROM database.namespace
 alpha
 beta

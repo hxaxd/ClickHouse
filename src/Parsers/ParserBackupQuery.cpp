@@ -90,13 +90,10 @@ namespace
                 if (database_name && table_name.first.empty())
                     table_name.first = *database_name;
 
+                /// inside a DATABASE clause the except table must belong to that database,
+                /// so a mismatched qualifier can only be a table path: EXCEPT TABLE ns.t
                 if (database_name && table_name.first != *database_name)
-                    throw Exception(
-                        ErrorCodes::SYNTAX_ERROR,
-                        "Database name in EXCEPT TABLES clause doesn't match the database name in DATABASE clause: {} != {}",
-                        table_name.first,
-                        *database_name
-                    );
+                    table_name = {*database_name, table_name.first + "." + table_name.second};
 
                 result.emplace(std::move(table_name));
                 return true;

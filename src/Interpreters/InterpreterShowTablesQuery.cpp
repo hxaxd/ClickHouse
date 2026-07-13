@@ -170,23 +170,24 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
 
     WriteBufferFromOwnString rewritten_query;
 
-    /// inside a namespace show names relative to it, and only direct children
+    /// inside a namespace show names relative to it, and only direct children;
+    /// the projection is a subquery so LIKE and WHERE both see the relative name
     const bool scoped = !table_namespace.empty() && !query.dictionaries && !query.temporary;
-    const String display_name = scoped
-        ? fmt::format("substring(name, {})", table_namespace.size() + 2)
-        : "name";
 
     if (query.full)
-        rewritten_query << "SELECT " << display_name << " AS name, engine FROM system.";
+        rewritten_query << "SELECT name, engine FROM ";
     else
-        rewritten_query << "SELECT " << display_name << " AS name FROM system.";
+        rewritten_query << "SELECT name FROM ";
 
-    if (query.dictionaries)
-        rewritten_query << "dictionaries ";
+    if (scoped)
+        rewritten_query << "(SELECT substring(name, " << (table_namespace.size() + 2) << ") AS name"
+                        << (query.full ? ", engine" : "") << " FROM system.tables";
+    else if (query.dictionaries)
+        rewritten_query << "system.dictionaries";
     else
-        rewritten_query << "tables ";
+        rewritten_query << "system.tables";
 
-    rewritten_query << "WHERE ";
+    rewritten_query << " WHERE ";
 
     if (query.temporary)
     {
@@ -210,18 +211,18 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
             /// the LIKE/NOT LIKE pair means "direct children of the namespace"; the catalog
             /// pushdown recognizes this exact shape (see extractTableNameFilter and ICatalog::getTables)
             rewritten_query << " AND name LIKE " << DB::quote << (escaped_prefix + "%")
-                            << " AND name NOT LIKE " << DB::quote << (escaped_prefix + "%.%");
+                            << " AND name NOT LIKE " << DB::quote << (escaped_prefix + "%.%") << ")";
         }
     }
 
     if (!query.like.empty())
         rewritten_query
-            << " AND " << display_name << " "
+            << (scoped ? " WHERE name " : " AND name ")
             << (query.not_like ? "NOT " : "")
             << (query.case_insensitive_like ? "ILIKE " : "LIKE ")
             << DB::quote << query.like;
     else if (query.where_expression)
-        rewritten_query << " AND (" << query.where_expression->formatWithSecretsOneLine() << ")";
+        rewritten_query << (scoped ? " WHERE (" : " AND (") << query.where_expression->formatWithSecretsOneLine() << ")";
 
     /// (*)
     rewritten_query << " ORDER BY name ";

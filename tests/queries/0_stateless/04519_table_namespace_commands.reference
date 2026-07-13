@@ -2,6 +2,8 @@
 1
 1
 1
+-- system.processes agrees with currentDatabase under a namespace
+1
 -- INSERT under the namespace
 4
 -- DESCRIBE under the namespace

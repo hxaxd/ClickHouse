@@ -16,6 +16,9 @@ $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentDatabase() == '$db.ns'"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentSchemas(true) = ['$db.ns']"
 $CLICKHOUSE_CLIENT -q "SELECT currentDatabase() == '$db'"
 
+echo "-- system.processes agrees with currentDatabase under a namespace"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT current_database = currentDatabase() FROM system.processes WHERE query_id = queryID()"
+
 echo "-- INSERT under the namespace"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; INSERT INTO t VALUES (4); SELECT count() FROM t"
 

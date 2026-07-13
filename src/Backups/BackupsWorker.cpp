@@ -23,6 +23,7 @@
 #include <Common/FailPoint.h>
 #include <Interpreters/Cluster.h>
 #include <Interpreters/Context.h>
+#include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/BackupLog.h>
 #include <Interpreters/executeDDLQueryOnCluster.h>
 #include <Parsers/ASTBackupQuery.h>
@@ -332,6 +333,33 @@ private:
 };
 
 
+namespace
+{
+
+/// a backup-source qualifier that isn't a database selects a table path in the current database
+void canonicalizeBackupElements(ASTBackupQuery::Elements & elements, const String & current_database)
+{
+    for (auto & element : elements)
+    {
+        if (element.type != ASTBackupQuery::TABLE || element.database_name.empty())
+            continue;
+        auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
+            StorageID(element.database_name, element.table_name), current_database);
+        if (folded.table_name == element.table_name)
+            continue;
+        /// AS defaults to the source name; keep them in sync when not explicitly set
+        if (element.new_database_name == element.database_name && element.new_table_name == element.table_name)
+        {
+            element.new_database_name = folded.database_name;
+            element.new_table_name = folded.table_name;
+        }
+        element.database_name = folded.database_name;
+        element.table_name = folded.table_name;
+    }
+}
+
+}
+
 BackupsWorker::BackupsWorker(ContextMutablePtr global_context, size_t num_backup_threads, size_t num_restore_threads)
     : thread_pools(std::make_unique<ThreadPools>(num_backup_threads, num_restore_threads))
     , allow_concurrent_backups(global_context->getConfigRef().getBool("backups.allow_concurrent_backups", true))
@@ -484,6 +512,7 @@ struct BackupsWorker::BackupStarter
         /// For ON CLUSTER queries, access rights are checked in executeDDLQueryOnCluster() before distributing the query.
         if (!on_cluster)
         {
+            canonicalizeBackupElements(backup_query->elements, backup_context->getCurrentDatabase());
             backup_query->setCurrentDatabase(backup_context->getCurrentDatabaseInfo());
             auto required_access = BackupUtils::getRequiredAccessToBackup(backup_query->elements);
             query_context->checkAccess(required_access);
@@ -679,6 +708,7 @@ void BackupsWorker::doBackup(
     {
         /// the shipped query bypasses the session scope on remote hosts, so pin the names here
         const auto backup_database_info = context->getCurrentDatabaseInfo();
+        canonicalizeBackupElements(backup_query->elements, backup_database_info.database);
         if (!backup_database_info.table_prefix.empty())
             backup_query->setCurrentDatabase(backup_database_info);
 
@@ -695,6 +725,7 @@ void BackupsWorker::doBackup(
     }
     else
     {
+        canonicalizeBackupElements(backup_query->elements, context->getCurrentDatabase());
         backup_query->setCurrentDatabase(context->getCurrentDatabaseInfo());
 
         auto read_settings = getReadSettingsForBackup(context, backup_settings);

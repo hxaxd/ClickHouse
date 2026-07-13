@@ -20,6 +20,9 @@ $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW TABLES"
 echo "-- LIKE applies to the relative name"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW TABLES LIKE 'al%'"
 
+echo "-- WHERE applies to the relative name, same as LIKE"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SHOW TABLES WHERE name = 'alpha'"
+
 echo "-- SHOW TABLES FROM database.namespace"
 $CLICKHOUSE_CLIENT -q "SHOW TABLES FROM $db.ns"
 

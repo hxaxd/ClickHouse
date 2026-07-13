@@ -606,10 +606,9 @@ bool DatabaseDataLake::empty() const
 
 void DatabaseDataLake::validateTableNamespace(const Names & namespace_parts, ContextPtr /*context*/) const
 {
-    /// one authoritative catalog call; also recognizes empty namespaces
+    /// one targeted catalog call; also recognizes empty namespaces
     const String requested = resolveTableNamePath(namespace_parts);
-    const auto namespaces = getCatalog()->getNamespaces();
-    if (std::find(namespaces.begin(), namespaces.end(), requested) == namespaces.end())
+    if (!getCatalog()->existsNamespace(requested))
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Catalog {} has no namespace {}",
             backQuote(getDatabaseName()), backQuote(requested));
 }

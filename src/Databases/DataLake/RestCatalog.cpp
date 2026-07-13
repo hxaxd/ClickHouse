@@ -727,6 +727,15 @@ DB::Names RestCatalog::getTables() const
     return tables;
 }
 
+bool RestCatalog::existsNamespace(const std::string & namespace_name) const
+{
+    /// one listing of the parent instead of walking the whole namespace tree
+    const auto pos = namespace_name.rfind('.');
+    const auto parent = pos == std::string::npos ? std::string{} : namespace_name.substr(0, pos);
+    const auto children = listChildNamespaces(parent);
+    return std::find(children.begin(), children.end(), namespace_name) != children.end();
+}
+
 RestCatalog::Namespaces RestCatalog::getNamespaces() const
 {
     /// Enumerate the whole namespace tree (every node at every level). Used by
