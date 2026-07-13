@@ -2208,13 +2208,6 @@ processLocal(const Coordination::ZooKeeperExistsRequest & zk_request, KeeperStor
     ProfileEvents::increment(ProfileEvents::KeeperExistsRequest);
     auto response = std::make_shared<Coordination::ZooKeeperExistsResponse>();
 
-    if (zk_request.path == Coordination::keeper_max_request_size_path)
-    {
-        /// Virtual node served by the Get handler; report it as existing (stat stays zeroed, same as Get returns).
-        response->error = Coordination::Error::ZOK;
-        return response;
-    }
-
     auto & container = storage.container;
     auto node_it = container.find(zk_request.path);
     if (node_it == container.end())
