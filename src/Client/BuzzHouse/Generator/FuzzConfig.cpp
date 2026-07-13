@@ -1180,8 +1180,7 @@ String FuzzConfig::tableGetRandomPartitionValue(const uint64_t rand_val, const S
     String res;
     const String db_clause = database.empty() ? "" : (R"("database" = ')" + escapeSQLString(database) + "' AND ");
 
-    /// Read the partition value display (`system.parts.partition`) base64-encoded so the raw bytes
-    /// survive the TabSeparated OUTFILE unescaped (values may contain backslashes/quotes).
+    /// base64-encode the partition value so raw bytes survive the TabSeparated OUTFILE unescaped.
     if (processServerQuery(
             true,
             fmt::format(
@@ -1205,10 +1204,8 @@ String FuzzConfig::tableGetRandomPartitionValue(const uint64_t rand_val, const S
         if (!encoded.empty())
             res = DB::base64Decode(encoded);
     }
-    /// Only emit values that are re-parseable as a bare `PARTITION <expr>`: the parenthesised tuple
-    /// form for composite/typed keys (e.g. `(202101, 'x')`), which ClickHouse always renders quoted,
-    /// or a bare integer (e.g. `toYYYYMM(d)` -> `202101`). Single-column string keys render unquoted
-    /// (e.g. `abc`) and would be a syntax error, so those fall back to `PARTITION ID`.
+    /// Only emit values re-parseable as a bare `PARTITION <expr>`: the quoted tuple form
+    /// `(202101, 'x')` or a bare integer. Unquoted single-column string keys fall back to PARTITION ID.
     const bool is_tuple = res.size() > 1 && res.front() == '(' && res.back() == ')';
     bool is_integer = !res.empty();
     for (size_t i = (!res.empty() && res.front() == '-') ? 1 : 0; is_integer && i < res.size(); i++)

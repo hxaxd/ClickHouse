@@ -1420,9 +1420,8 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         fuzzTableStorage(*create.storage);
     }
 
-    /// Fuzz the inner target tables — the inner storage and column lists live in `targets`, not
-    /// in `storage`. Covers every target kind: the To inner table of a materialized view, the
-    /// Inner table of a window view, and the Samples/Tags/Metrics tables of a TimeSeries table.
+    /// Fuzz inner target tables (storage + columns live in `targets`): MV To, window-view Inner,
+    /// and TimeSeries Samples/Tags/Metrics.
     if (create.targets)
     {
         for (auto * inner_storage : create.targets->getInnerEngines())
@@ -1624,12 +1623,11 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         }
     }
 
-    /// Cycle the replace form: CREATE / REPLACE / CREATE OR REPLACE for tables, CREATE /
-    /// CREATE OR REPLACE for views and dictionaries. Enabling any of them clears
-    /// IF NOT EXISTS, which does not parse together with them.
-    if (!create.attach && !create.isTemporary() && fuzz_rand() % 30 == 0)
+    /// Cycle the replace form (CREATE / REPLACE / CREATE OR REPLACE); enabling any clears
+    /// IF NOT EXISTS. Window views are excluded — they accept no replace form.
+    if (!create.attach && !create.isTemporary() && !create.is_window_view && fuzz_rand() % 30 == 0)
     {
-        if (create.isView())
+        if (create.is_ordinary_view || create.is_materialized_view)
         {
             create.replace_view = !create.replace_view;
             if (create.replace_view)
@@ -1649,9 +1647,7 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
     if (!create.replace_table && !create.create_or_replace && !create.replace_view && fuzz_rand() % 30 == 0)
         create.if_not_exists = !create.if_not_exists;
 
-    /// Toggle the explicit UUID clause: add a random `UUID '...'` or drop an existing one.
-    /// Not valid for TEMPORARY tables. The formatter emits the clause whenever `uuid` is non-Nil,
-    /// and the parser reads it back from the table/database/dictionary identifier, so it round-trips.
+    /// Toggle the explicit UUID clause (add a random UUID or drop it); not valid for TEMPORARY.
     if (!create.isTemporary() && fuzz_rand() % 30 == 0)
     {
         if (create.uuid != UUIDHelpers::Nil)
@@ -1671,10 +1667,8 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         }
     }
 
-    /// Fuzz ATTACH ... AS [NOT] REPLICATED — only valid for plain-table ATTACH (not views,
-    /// dictionaries or databases). It is mutually exclusive with FROM 'path' in the parser, so
-    /// setting it clears the attach-from-path clause. Cleared on CREATE so a query toggled out of
-    /// ATTACH does not emit a stray `AS REPLICATED` that would fail to reparse.
+    /// ATTACH ... AS [NOT] REPLICATED: plain-table ATTACH only, mutually exclusive with FROM 'path';
+    /// cleared on CREATE so a toggled-out query does not emit a stray AS REPLICATED.
     if (create.attach && create.table && !create.isView() && !create.is_dictionary)
     {
         if (fuzz_rand() % 20 == 0)
@@ -1709,8 +1703,7 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
             create.is_create_empty = false;
     }
 
-    /// Swap the CLONE/AS source table (`... AS src` / `... CLONE AS src`) with a random known
-    /// fuzzed table name, so the schema-copy / clone path sees different (and often existing) sources.
+    /// Swap the CLONE/AS source table with a random known fuzzed table name.
     if (!create.as_table.empty() && !original_table_name_to_fuzzed.empty() && fuzz_rand() % 20 == 0)
     {
         const auto & fuzzed = std::next(original_table_name_to_fuzzed.begin(), fuzz_rand() % original_table_name_to_fuzzed.size())->second;
@@ -1784,12 +1777,11 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
         if (fuzz_rand() % 100 == 0)
             drop_storage_clause(create.storage->engine);
 
-        /// Add missing key clauses — the drops above only remove them, so without this the fuzzer
-        /// could never introduce PARTITION BY / ORDER BY / PRIMARY KEY / UNIQUE KEY on a table
-        /// lacking them. Skipped for CREATE DATABASE, whose parser accepts no key clauses.
+        /// Add missing key clauses (the drops above only remove them); the fuzzer could otherwise
+        /// never introduce them. Skipped for CREATE DATABASE, whose parser accepts no key clauses.
         if (create.table)
         {
-            /// Prefer the table's own columns so many of the added keys are actually valid
+            /// Prefer the table's own columns so many added keys are valid
             auto random_key_expr = [&]() -> ASTPtr
             {
                 Strings names;
@@ -1803,14 +1795,13 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
             };
 
             /// getRandomColumnLike may return nullptr when the pool is empty
-            auto add_storage_clause = [&](IAST *& ptr, ASTPtr expr)
+            auto add_storage_clause = [&](IAST *& ptr, const ASTPtr & expr)
             {
                 if (expr)
-                    create.storage->set(ptr, std::move(expr));
+                    create.storage->set(ptr, expr);
             };
 
-            /// ASC/DESC wrappers only parse inside ORDER BY, so such a key cannot be cloned
-            /// into PRIMARY KEY without breaking reparse
+            /// ASC/DESC wrappers only parse inside ORDER BY, so they can't be cloned into PRIMARY KEY
             auto order_by_has_direction = [&]
             {
                 const auto * order_by = create.storage->order_by;
@@ -1827,8 +1818,7 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
                 add_storage_clause(create.storage->partition_by, random_key_expr());
             if (!create.storage->order_by && fuzz_rand() % 50 == 0)
                 add_storage_clause(create.storage->order_by, fuzz_rand() % 3 == 0 ? makeASTFunction("tuple") : random_key_expr());
-            /// A PRIMARY KEY identical to ORDER BY is a valid prefix; without ORDER BY a lone
-            /// PRIMARY KEY is also valid DDL (the sorting key defaults to it)
+            /// PRIMARY KEY cloned from ORDER BY is a valid prefix; a lone PRIMARY KEY is valid too
             if (!create.storage->primary_key && fuzz_rand() % 50 == 0)
             {
                 ASTPtr pk;
@@ -1836,7 +1826,7 @@ void QueryFuzzer::fuzzCreateQuery(ASTCreateQuery & create)
                     pk = create.storage->order_by->clone();
                 else
                     pk = random_key_expr();
-                add_storage_clause(create.storage->primary_key, std::move(pk));
+                add_storage_clause(create.storage->primary_key, pk);
             }
             if (!create.storage->unique_key && fuzz_rand() % 100 == 0)
                 add_storage_clause(create.storage->unique_key, random_key_expr());
@@ -2090,9 +2080,8 @@ void QueryFuzzer::fuzzColumnDeclaration(ASTColumnDeclaration & column)
     if (fuzz_rand() % 50 == 0)
         column.primary_key_specifier = !column.primary_key_specifier;
 
-    /// Toggle EPHEMERAL default suppression: `col T EPHEMERAL <expr>` <-> `col T EPHEMERAL`.
-    /// Only meaningful for EPHEMERAL columns; hiding the expression requires an explicit type,
-    /// otherwise the column would have neither type nor default and fail to reparse.
+    /// Toggle EPHEMERAL value suppression (`col T EPHEMERAL <expr>` <-> `col T EPHEMERAL`);
+    /// hiding it needs an explicit type, else the column has neither type nor default.
     if (column.default_specifier == ColumnDefaultSpecifier::Ephemeral && column.getDefaultExpression() && fuzz_rand() % 20 == 0)
     {
         if (column.ephemeral_default)
@@ -4793,6 +4782,23 @@ static ASTPtr alterMutationToLightweight(const ASTAlterQuery & alter)
     return nullptr;
 }
 
+/// Access-entity queries accept IF EXISTS only on ALTER and IF NOT EXISTS / OR REPLACE only on
+/// CREATE; clear whatever does not parse for the current verb (keeping the latter two exclusive).
+static void normalizeAccessEntityMode(bool alter, bool & if_exists, bool & if_not_exists, bool & or_replace)
+{
+    if (alter)
+    {
+        if_not_exists = false;
+        or_replace = false;
+    }
+    else
+    {
+        if_exists = false;
+        if (if_not_exists)
+            or_replace = false;
+    }
+}
+
 void QueryFuzzer::fuzz(ASTPtr & ast)
 {
     if (!ast)
@@ -6985,20 +6991,30 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * create_user = typeid_cast<ASTCreateUserQuery *>(ast.get()))
     {
-        if (fuzz_rand() % 10 == 0)
-            create_user->alter = !create_user->alter;
-        if (fuzz_rand() % 10 == 0)
-            create_user->if_exists = !create_user->if_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_user->if_not_exists = !create_user->if_not_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_user->or_replace = !create_user->or_replace;
-        if (fuzz_rand() % 20 == 0)
-            create_user->reset_authentication_methods_to_new = !create_user->reset_authentication_methods_to_new;
-        if (fuzz_rand() % 20 == 0)
-            create_user->add_identified_with = !create_user->add_identified_with;
-        if (fuzz_rand() % 20 == 0)
-            create_user->replace_authentication_methods = !create_user->replace_authentication_methods;
+        if (!create_user->attach)
+        {
+            if (fuzz_rand() % 10 == 0)
+                create_user->alter = !create_user->alter;
+            if (fuzz_rand() % 10 == 0)
+                create_user->if_exists = !create_user->if_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_user->if_not_exists = !create_user->if_not_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_user->or_replace = !create_user->or_replace;
+            /// ADD IDENTIFIED and RESET AUTHENTICATION METHODS TO NEW are ALTER USER-only
+            if (create_user->alter && fuzz_rand() % 20 == 0)
+                create_user->reset_authentication_methods_to_new = !create_user->reset_authentication_methods_to_new;
+            if (create_user->alter && fuzz_rand() % 20 == 0)
+                create_user->add_identified_with = !create_user->add_identified_with;
+            normalizeAccessEntityMode(
+                create_user->alter, create_user->if_exists, create_user->if_not_exists, create_user->or_replace);
+            /// Leaving ALTER clears the ALTER-only auth modifiers, whether just flipped or pre-existing
+            if (!create_user->alter)
+            {
+                create_user->reset_authentication_methods_to_new = false;
+                create_user->add_identified_with = false;
+            }
+        }
         if (create_user->global_valid_until)
             fuzz(create_user->global_valid_until);
         /// The authentication methods are registered as children.
@@ -7006,36 +7022,51 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * create_role = typeid_cast<ASTCreateRoleQuery *>(ast.get()))
     {
-        if (fuzz_rand() % 10 == 0)
-            create_role->alter = !create_role->alter;
-        if (fuzz_rand() % 10 == 0)
-            create_role->if_exists = !create_role->if_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_role->if_not_exists = !create_role->if_not_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_role->or_replace = !create_role->or_replace;
+        if (!create_role->attach)
+        {
+            if (fuzz_rand() % 10 == 0)
+                create_role->alter = !create_role->alter;
+            if (fuzz_rand() % 10 == 0)
+                create_role->if_exists = !create_role->if_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_role->if_not_exists = !create_role->if_not_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_role->or_replace = !create_role->or_replace;
+            normalizeAccessEntityMode(
+                create_role->alter, create_role->if_exists, create_role->if_not_exists, create_role->or_replace);
+        }
     }
     else if (auto * create_profile = typeid_cast<ASTCreateSettingsProfileQuery *>(ast.get()))
     {
-        if (fuzz_rand() % 10 == 0)
-            create_profile->alter = !create_profile->alter;
-        if (fuzz_rand() % 10 == 0)
-            create_profile->if_exists = !create_profile->if_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_profile->if_not_exists = !create_profile->if_not_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_profile->or_replace = !create_profile->or_replace;
+        if (!create_profile->attach)
+        {
+            if (fuzz_rand() % 10 == 0)
+                create_profile->alter = !create_profile->alter;
+            if (fuzz_rand() % 10 == 0)
+                create_profile->if_exists = !create_profile->if_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_profile->if_not_exists = !create_profile->if_not_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_profile->or_replace = !create_profile->or_replace;
+            normalizeAccessEntityMode(
+                create_profile->alter, create_profile->if_exists, create_profile->if_not_exists, create_profile->or_replace);
+        }
     }
     else if (auto * create_policy = typeid_cast<ASTCreateRowPolicyQuery *>(ast.get()))
     {
-        if (fuzz_rand() % 10 == 0)
-            create_policy->alter = !create_policy->alter;
-        if (fuzz_rand() % 10 == 0)
-            create_policy->if_exists = !create_policy->if_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_policy->if_not_exists = !create_policy->if_not_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_policy->or_replace = !create_policy->or_replace;
+        if (!create_policy->attach)
+        {
+            if (fuzz_rand() % 10 == 0)
+                create_policy->alter = !create_policy->alter;
+            if (fuzz_rand() % 10 == 0)
+                create_policy->if_exists = !create_policy->if_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_policy->if_not_exists = !create_policy->if_not_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_policy->or_replace = !create_policy->or_replace;
+            normalizeAccessEntityMode(
+                create_policy->alter, create_policy->if_exists, create_policy->if_not_exists, create_policy->or_replace);
+        }
         if (create_policy->is_restrictive.has_value() && fuzz_rand() % 10 == 0)
             create_policy->is_restrictive = !*create_policy->is_restrictive;
         for (auto & [filter_type, filter_expr] : create_policy->filters)
@@ -7044,14 +7075,19 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * create_quota = typeid_cast<ASTCreateQuotaQuery *>(ast.get()))
     {
-        if (fuzz_rand() % 10 == 0)
-            create_quota->alter = !create_quota->alter;
-        if (fuzz_rand() % 10 == 0)
-            create_quota->if_exists = !create_quota->if_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_quota->if_not_exists = !create_quota->if_not_exists;
-        if (fuzz_rand() % 10 == 0)
-            create_quota->or_replace = !create_quota->or_replace;
+        if (!create_quota->attach)
+        {
+            if (fuzz_rand() % 10 == 0)
+                create_quota->alter = !create_quota->alter;
+            if (fuzz_rand() % 10 == 0)
+                create_quota->if_exists = !create_quota->if_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_quota->if_not_exists = !create_quota->if_not_exists;
+            if (fuzz_rand() % 10 == 0)
+                create_quota->or_replace = !create_quota->or_replace;
+            normalizeAccessEntityMode(
+                create_quota->alter, create_quota->if_exists, create_quota->if_not_exists, create_quota->or_replace);
+        }
         for (auto & limits : create_quota->all_limits)
         {
             if (fuzz_rand() % 10 == 0)
@@ -7082,11 +7118,16 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
     }
     else if (auto * set_role = typeid_cast<ASTSetRoleQuery *>(ast.get()))
     {
+        /// Only switch to a kind whose required fields exist: formatImpl dereferences `roles`
+        /// (SET ROLE / SET DEFAULT ROLE) and `to_users` (SET DEFAULT ROLE).
         if (fuzz_rand() % 10 == 0)
         {
-            static const ASTSetRoleQuery::Kind kinds[]
-                = {ASTSetRoleQuery::Kind::SET_ROLE, ASTSetRoleQuery::Kind::SET_ROLE_DEFAULT, ASTSetRoleQuery::Kind::SET_DEFAULT_ROLE};
-            set_role->kind = kinds[fuzz_rand() % std::size(kinds)];
+            std::vector<ASTSetRoleQuery::Kind> kinds = {ASTSetRoleQuery::Kind::SET_ROLE_DEFAULT};
+            if (set_role->roles)
+                kinds.push_back(ASTSetRoleQuery::Kind::SET_ROLE);
+            if (set_role->roles && set_role->to_users)
+                kinds.push_back(ASTSetRoleQuery::Kind::SET_DEFAULT_ROLE);
+            set_role->kind = kinds[fuzz_rand() % kinds.size()];
         }
     }
     else if (auto * backup = typeid_cast<ASTBackupQuery *>(ast.get()))
