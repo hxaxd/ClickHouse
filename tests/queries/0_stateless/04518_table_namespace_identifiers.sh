@@ -70,11 +70,9 @@ $CLICKHOUSE_CLIENT -m -q "
     SELECT joinGet('ns.jt', 'v', toUInt32(1));
 "
 
-echo "-- joinGet dependency tracking matches its runtime resolution"
-$CLICKHOUSE_CLIENT -m -q "
-    CREATE VIEW dep_view AS SELECT joinGet('ns.jt', 'v', toUInt32(1)) AS r;
-    SELECT count() FROM system.tables WHERE database = '$db' AND name = 'ns.jt' AND has(loading_dependent_table, 'dep_view');
-"
+echo "-- joinGet dependency tracking protects the actual Join table"
+$CLICKHOUSE_CLIENT -q "CREATE VIEW dep_view AS SELECT joinGet('ns.jt', 'v', toUInt32(1)) AS r"
+$CLICKHOUSE_CLIENT -q "DROP TABLE \`ns.jt\` SETTINGS check_referential_table_dependencies = 1" 2>&1 | grep -m1 -c "HAVE_DEPENDENT_OBJECTS"
 
 echo "-- loop table function under the namespace"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT x FROM loop(t) LIMIT 1"

@@ -56,7 +56,7 @@
 created_p
 -- joinGet with a namespace-path table string
 one
--- joinGet dependency tracking matches its runtime resolution
+-- joinGet dependency tracking protects the actual Join table
 1
 -- loop table function under the namespace
 1
