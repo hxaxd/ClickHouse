@@ -484,7 +484,7 @@ struct BackupsWorker::BackupStarter
         /// For ON CLUSTER queries, access rights are checked in executeDDLQueryOnCluster() before distributing the query.
         if (!on_cluster)
         {
-            backup_query->setCurrentDatabase(backup_context->getCurrentDatabase());
+            backup_query->setCurrentDatabase(backup_context->getCurrentDatabaseInfo());
             auto required_access = BackupUtils::getRequiredAccessToBackup(backup_query->elements);
             query_context->checkAccess(required_access);
         }
@@ -677,6 +677,11 @@ void BackupsWorker::doBackup(
     /// Write the backup.
     if (on_cluster && !is_internal_backup)
     {
+        /// the shipped query bypasses the session scope on remote hosts, so pin the names here
+        const auto backup_database_info = context->getCurrentDatabaseInfo();
+        if (!backup_database_info.table_prefix.empty())
+            backup_query->setCurrentDatabase(backup_database_info);
+
         auto required_access = BackupUtils::getRequiredAccessToBackup(backup_query->elements);
 
         /// Send the BACKUP query to other hosts.
@@ -690,7 +695,7 @@ void BackupsWorker::doBackup(
     }
     else
     {
-        backup_query->setCurrentDatabase(context->getCurrentDatabase());
+        backup_query->setCurrentDatabase(context->getCurrentDatabaseInfo());
 
         auto read_settings = getReadSettingsForBackup(context, backup_settings);
 
@@ -1097,6 +1102,12 @@ void BackupsWorker::doRestore(
         setEngineSettings(restore_id, backup->getEngineSettings());
 
     String current_database = context->getCurrentDatabase();
+
+    /// under a namespace scope pin the names now: remote hosts and the access check below
+    /// cannot reproduce the session scope
+    const auto current_database_info = context->getCurrentDatabaseInfo();
+    if (!current_database_info.table_prefix.empty())
+        restore_query->setCurrentDatabase(current_database_info);
 
     /// Checks access rights if this is ON CLUSTER query.
     /// (If this isn't ON CLUSTER query RestorerFromBackup will check access rights later.)

@@ -198,8 +198,20 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
     {
         rewritten_query << "database = " << DB::quote << database;
         if (scoped)
-            rewritten_query << " AND startsWith(name, " << DB::quote << (table_namespace + ".")
-                            << ") AND position(" << display_name << ", '.') = 0";
+        {
+            /// escape LIKE metacharacters in the namespace itself
+            String escaped_prefix;
+            for (char c : table_namespace + ".")
+            {
+                if (c == '%' || c == '_' || c == '\\')
+                    escaped_prefix += '\\';
+                escaped_prefix += c;
+            }
+            /// the LIKE/NOT LIKE pair means "direct children of the namespace"; the catalog
+            /// pushdown recognizes this exact shape (see extractTableNameFilter and ICatalog::getTables)
+            rewritten_query << " AND name LIKE " << DB::quote << (escaped_prefix + "%")
+                            << " AND name NOT LIKE " << DB::quote << (escaped_prefix + "%.%");
+        }
     }
 
     if (!query.like.empty())

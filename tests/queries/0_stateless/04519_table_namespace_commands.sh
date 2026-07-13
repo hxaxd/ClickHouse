@@ -29,6 +29,11 @@ $CLICKHOUSE_CLIENT -m -q "USE $db.ns; RENAME TABLE t TO renamed"
 $CLICKHOUSE_CLIENT -m -q "EXISTS TABLE $db.\`ns.renamed\`"
 $CLICKHOUSE_CLIENT -m -q "EXISTS TABLE $db.renamed"
 
+echo "-- RENAME with a namespace-path source"
+$CLICKHOUSE_CLIENT -q "CREATE TABLE \`ns2.src\` (x Int8) ENGINE = Memory"
+$CLICKHOUSE_CLIENT -q "RENAME TABLE ns2.src TO \`ns2.dst\`"
+$CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns2.dst\`"
+
 echo "-- TRUNCATE and DROP under the namespace"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; TRUNCATE TABLE renamed; SELECT count() FROM renamed"
 $CLICKHOUSE_CLIENT -m -q "

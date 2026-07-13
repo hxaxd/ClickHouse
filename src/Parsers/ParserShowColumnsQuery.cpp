@@ -18,7 +18,6 @@ bool ParserShowColumnsQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expe
     ASTPtr from1;
     ASTPtr from2;
 
-    String from2_str;
 
     auto query = make_intrusive<ASTShowColumnsQuery>();
 
@@ -59,10 +58,16 @@ bool ParserShowColumnsQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expe
     {
         query->table = table_id->shortName();
         if (ParserKeyword(Keyword::FROM).ignore(pos, expected) || ParserKeyword(Keyword::IN).ignore(pos, expected))
-            if (!ParserIdentifier().parse(pos, from2, expected))
+            if (!ParserCompoundIdentifier().parse(pos, from2, expected))
                 return false;
-        tryGetIdentifierNameInto(from2, from2_str);
-        query->database = from2_str;
+        if (from2)
+        {
+            /// extra parts of the database operand are a namespace path: FROM t FROM db.ns == db.`ns.t`
+            const auto & database_parts = from2->as<ASTIdentifier &>().name_parts;
+            query->database = database_parts[0];
+            for (size_t i = database_parts.size(); i > 1; --i)
+                query->table = database_parts[i - 1] + "." + query->table;
+        }
     }
 
     if (ParserKeyword(Keyword::NOT).ignore(pos, expected))

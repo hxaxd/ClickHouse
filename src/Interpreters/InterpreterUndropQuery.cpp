@@ -34,6 +34,13 @@ BlockIO InterpreterUndropQuery::execute()
     auto & undrop = query_ptr->as<ASTUndropQuery &>();
     if (!undrop.cluster.empty() && !maybeRemoveOnCluster(query_ptr, getContext()))
     {
+        /// the shipped query bypasses local name resolution, so canonicalize the name here
+        auto scoped = DatabaseCatalog::instance().applyNamespaceScope(
+            StorageID(undrop.getDatabase(), undrop.getTable()), getContext()->getCurrentDatabaseInfo());
+        if (!scoped.database_name.empty())
+            undrop.setDatabase(scoped.database_name);
+        undrop.setTable(scoped.table_name);
+
         DDLQueryOnClusterParams params;
         params.access_to_check = getRequiredAccessForDDLOnCluster();
         return executeDDLQueryOnCluster(query_ptr, getContext(), params);
@@ -59,6 +66,14 @@ BlockIO InterpreterUndropQuery::executeToTable(ASTUndropQuery & query)
             query.setTable(table_id.table_name);
         }
         query.setDatabase(table_id.database_name);
+    }
+    else if (auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(table_id, context->getCurrentDatabase());
+             folded.table_name != table_id.table_name)
+    {
+        /// a qualifier that isn't a database selects a table path in the current database
+        table_id = folded;
+        query.setDatabase(table_id.database_name);
+        query.setTable(table_id.table_name);
     }
 
     auto guard = DatabaseCatalog::instance().getDDLGuard(table_id.database_name, table_id.table_name, nullptr);

@@ -935,6 +935,19 @@ CurrentDatabaseInfo DatabaseCatalog::splitTablePrefixFromDatabaseName(const Stri
     return {database_name, name.substr(dot_pos + 1)};
 }
 
+StorageID DatabaseCatalog::applyNamespaceScope(StorageID storage_id, const CurrentDatabaseInfo & scope) const
+{
+    if (storage_id.database_name.empty())
+    {
+        if (scope.table_prefix.empty())
+            return storage_id;
+        storage_id.database_name = scope.database;
+        storage_id.table_name = scope.table_prefix + "." + storage_id.table_name;
+        return storage_id;
+    }
+    return applyNamespaceQualifier(std::move(storage_id), scope.database);
+}
+
 StorageID DatabaseCatalog::applyNamespaceQualifier(StorageID storage_id, const String & current_database) const
 {
     if (storage_id.hasUUID() || storage_id.database_name.empty() || current_database.empty()

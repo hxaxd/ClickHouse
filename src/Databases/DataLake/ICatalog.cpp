@@ -343,6 +343,12 @@ DB::Names ICatalog::getTables(const TableNameFilter & filter) const
             /// table listing.
             const String fixed_prefix = std::get<0>(extractFixedPrefixFromLikePattern(filter.value, /*requires_perfect_prefix*/ false));
 
+            /// `LIKE 'ns.%' AND NOT LIKE 'ns.%.%'` is the scoped SHOW TABLES shape:
+            /// only the direct children of `ns`, so descendant namespaces need not be listed.
+            if (!filter.exclude.empty() && filter.exclude == filter.value + ".%"
+                && !fixed_prefix.empty() && fixed_prefix.back() == '.')
+                return listTablesInNamespaceDirect(fixed_prefix.substr(0, fixed_prefix.size() - 1));
+
             /// A leading wildcard (e.g. `%foo%`) yields an empty prefix, so we must list all namespaces and tables.
             /// Calling getTables() is better as its parallel.
             if (fixed_prefix.empty())

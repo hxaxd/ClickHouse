@@ -164,6 +164,10 @@ public:
     /// otherwise, if the current database supports namespaces, the qualifier is a namespace
     /// inside it. Never applied to canonical StorageIDs — only to names taken from query text.
     StorageID applyNamespaceQualifier(StorageID storage_id, const String & current_database) const;
+    /// Canonicalize a query-written name against the session scope: an unqualified name gets the
+    /// database and namespace prefix, a qualified one goes through applyNamespaceQualifier.
+    /// For queries serialized as-is (ON CLUSTER), which never pass local name resolution.
+    StorageID applyNamespaceScope(StorageID storage_id, const CurrentDatabaseInfo & scope) const;
     /// Datalake catalogs are implemented at `IDatabase` level in ClickHouse.
     /// In general case Datalake catalog is a remote service which contains iceberg/delta tables.
     /// Sometimes this service charges money for requests. With this flag we explicitly protect ourselves

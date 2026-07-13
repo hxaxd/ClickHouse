@@ -45,6 +45,12 @@ $CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" --param_t="t" \
 $CLICKHOUSE_CLIENT --param_n="ns" --param_t="t" \
     -q "SELECT count() FROM {n:Identifier}.{t:Identifier}"
 
+echo "-- SHOW COLUMNS with a separate namespaced FROM"
+$CLICKHOUSE_CLIENT -q "SHOW COLUMNS FROM t FROM $db.ns" | wc -l
+
+echo "-- UNDROP parses a multipart table path"
+$CLICKHOUSE_CLIENT -q "SELECT formatQuery('UNDROP TABLE a.b.c')"
+
 echo "-- JSON subcolumn delimiters are untouched in column context"
 $CLICKHOUSE_CLIENT -m -q "
     SET enable_json_type = 1;

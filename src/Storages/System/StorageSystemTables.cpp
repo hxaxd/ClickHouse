@@ -159,7 +159,7 @@ TablesFilter extractTableNameFilter(const ActionsDAG::Node * predicate)
         {
             /// `equals` is symmetric (literal either side); prefer it — most selective.
             if (auto literal = tryReadConstString(lhs_is_name ? rhs : lhs))
-                return {TablesFilter::Kind::Equals, std::move(*literal)};
+                return {TablesFilter::Kind::Equals, std::move(*literal), {}};
         }
         else if (fn_name == "like")
         {
@@ -168,7 +168,10 @@ TablesFilter extractTableNameFilter(const ActionsDAG::Node * predicate)
             if (lhs_is_name && like_filter.kind == TablesFilter::Kind::None)
             {
                 if (auto literal = tryReadConstString(rhs))
-                    like_filter = {TablesFilter::Kind::Like, std::move(*literal)};
+                {
+                    like_filter.kind = TablesFilter::Kind::Like;
+                    like_filter.pattern = std::move(*literal);
+                }
             }
         }
         else if (fn_name == "startsWith")
@@ -178,7 +181,18 @@ TablesFilter extractTableNameFilter(const ActionsDAG::Node * predicate)
             if (lhs_is_name && like_filter.kind == TablesFilter::Kind::None)
             {
                 if (auto literal = tryReadConstString(rhs))
-                    like_filter = {TablesFilter::Kind::Like, escapeForLikeLiteral(*literal) + "%"};
+                {
+                    like_filter.kind = TablesFilter::Kind::Like;
+                    like_filter.pattern = escapeForLikeLiteral(*literal) + "%";
+                }
+            }
+        }
+        else if (fn_name == "notLike")
+        {
+            if (lhs_is_name && like_filter.exclude_pattern.empty())
+            {
+                if (auto literal = tryReadConstString(rhs))
+                    like_filter.exclude_pattern = std::move(*literal);
             }
         }
     }

@@ -100,6 +100,13 @@ BlockIO InterpreterDropQuery::executeSingleDropQuery(const ASTPtr & drop_query_p
     auto & drop = drop_query_ptr->as<ASTDropQuery &>();
     if (!drop.cluster.empty() && drop.table && !drop.if_empty && !maybeRemoveOnCluster(current_query_ptr, getContext()))
     {
+        /// the shipped query bypasses local name resolution, so canonicalize the name here
+        auto scoped = DatabaseCatalog::instance().applyNamespaceScope(
+            StorageID(drop.getDatabase(), drop.getTable()), getContext()->getCurrentDatabaseInfo());
+        if (!scoped.database_name.empty())
+            drop.setDatabase(scoped.database_name);
+        drop.setTable(scoped.table_name);
+
         DDLQueryOnClusterParams params;
         params.access_to_check = getRequiredAccessForDDLOnCluster();
         return executeDDLQueryOnCluster(current_query_ptr, getContext(), params);

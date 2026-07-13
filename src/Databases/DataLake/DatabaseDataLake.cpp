@@ -144,13 +144,13 @@ DataLake::TableNameFilter toCatalogTableNameFilter(const TablesFilter & tables_f
     switch (tables_filter.kind)
     {
         case TablesFilter::Kind::None:
-            return {DataLake::TableNameFilter::Kind::All, {}};
+            return {DataLake::TableNameFilter::Kind::All, {}, {}};
         case TablesFilter::Kind::Equals:
-            return {DataLake::TableNameFilter::Kind::Equals, tables_filter.pattern};
+            return {DataLake::TableNameFilter::Kind::Equals, tables_filter.pattern, {}};
         case TablesFilter::Kind::Like:
-            return {DataLake::TableNameFilter::Kind::Like, tables_filter.pattern};
+            return {DataLake::TableNameFilter::Kind::Like, tables_filter.pattern, tables_filter.exclude_pattern};
     }
-    return {DataLake::TableNameFilter::Kind::All, {}};
+    return {DataLake::TableNameFilter::Kind::All, {}, {}};
 }
 
 }

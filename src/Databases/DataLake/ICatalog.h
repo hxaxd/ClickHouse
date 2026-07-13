@@ -138,6 +138,8 @@ struct TableNameFilter
     Kind kind = Kind::All;
     /// `Equals`: the literal value (e.g. `ns.table`). `Like`: the pattern (e.g. `ns.%`).
     std::string value;
+    /// Optional `name NOT LIKE '…'` conjunct (see `DB::TablesFilter::exclude_pattern`).
+    std::string exclude;
 };
 
 
