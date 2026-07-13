@@ -165,7 +165,8 @@ getJoin(const ColumnsWithTypeAndName & arguments, ContextPtr context)
                         arguments[0].type->getName());
 
     const auto qualified_name = QualifiedTableName::parseFromString(join_name);
-    const auto storage_id = context->resolveStorageID({qualified_name.database, qualified_name.table});
+    /// a query-written name: a namespace scope or a non-database qualifier must apply
+    const auto storage_id = context->resolveStorageIDFromQuery({qualified_name.database, qualified_name.table});
 
     auto table = DatabaseCatalog::instance().getTable(storage_id, std::const_pointer_cast<Context>(context));
     auto storage_join = std::dynamic_pointer_cast<StorageJoin>(table);

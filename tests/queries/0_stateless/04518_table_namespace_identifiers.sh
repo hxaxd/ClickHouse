@@ -54,6 +54,16 @@ $CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" --param_t="t" \
 $CLICKHOUSE_CLIENT --param_n="ns" --param_t="t" \
     -q "SELECT count() FROM {n:Identifier}.{t:Identifier}"
 
+echo "-- joinGet with a namespace-path table string"
+$CLICKHOUSE_CLIENT -m -q "
+    CREATE TABLE \`ns.jt\` (k UInt32, v String) ENGINE = Join(ANY, LEFT, k);
+    INSERT INTO \`ns.jt\` VALUES (1, 'one');
+    SELECT joinGet('ns.jt', 'v', toUInt32(1));
+"
+
+echo "-- loop table function under the namespace"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT x FROM loop(t) LIMIT 1"
+
 echo "-- SHOW COLUMNS with a separate namespaced FROM"
 $CLICKHOUSE_CLIENT -q "SHOW COLUMNS FROM t FROM $db.ns" | wc -l
 

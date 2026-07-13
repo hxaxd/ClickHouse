@@ -105,17 +105,16 @@ namespace DB
             return inner_table_function->getActualTableStructureWithAccess(context, is_insert_query);
         }
 
-        String database_name = loop_database_name;
-        if (database_name.empty())
-            database_name = context->getCurrentDatabase();
+        const auto storage_id = context->resolveStorageIDFromQuery(
+            StorageID(loop_database_name, loop_table_name), Context::ResolveOrdinary);
 
         /// Reading the schema requires SHOW COLUMNS, same as a direct DESCRIBE of the table.
-        context->checkAccess(AccessType::SHOW_COLUMNS, database_name, loop_table_name);
+        context->checkAccess(AccessType::SHOW_COLUMNS, storage_id.database_name, storage_id.table_name);
 
-        auto database = DatabaseCatalog::instance().getDatabase(database_name);
-        auto storage = database->tryGetTable(loop_table_name, context);
+        auto database = DatabaseCatalog::instance().getDatabase(storage_id.database_name);
+        auto storage = database->tryGetTable(storage_id.table_name, context);
         if (!storage)
-            throw Exception(ErrorCodes::UNKNOWN_TABLE, "Table '{}' not found in database '{}'", loop_table_name, database_name);
+            throw Exception(ErrorCodes::UNKNOWN_TABLE, "Table '{}' not found in database '{}'", storage_id.table_name, storage_id.database_name);
 
         auto metadata_snapshot = storage->getInMemoryMetadataPtr(context, false);
         return metadata_snapshot->getColumns();
@@ -131,15 +130,15 @@ namespace DB
         StoragePtr storage;
         if (!inner_table_function_ast)
         {
-            String database_name = loop_database_name;
-            if (database_name.empty())
-                database_name = context->getCurrentDatabase();
+            const auto storage_id = context->resolveStorageIDFromQuery(
+                StorageID(loop_database_name, loop_table_name), Context::ResolveOrdinary);
+            const String & database_name = storage_id.database_name;
 
             auto database = DatabaseCatalog::instance().getDatabase(database_name);
-            storage = database->tryGetTable(loop_table_name, context);
+            storage = database->tryGetTable(storage_id.table_name, context);
             if (!storage)
-                throw Exception(ErrorCodes::UNKNOWN_TABLE, "Table '{}' not found in database '{}'", loop_table_name, database_name);
-            context->checkAccess(AccessType::SELECT, database_name, loop_table_name);
+                throw Exception(ErrorCodes::UNKNOWN_TABLE, "Table '{}' not found in database '{}'", storage_id.table_name, database_name);
+            context->checkAccess(AccessType::SELECT, database_name, storage_id.table_name);
         }
         else
         {

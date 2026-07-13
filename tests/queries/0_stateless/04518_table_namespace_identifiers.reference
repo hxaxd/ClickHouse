@@ -51,6 +51,10 @@
 -- identifiers from query parameters
 2
 2
+-- joinGet with a namespace-path table string
+one
+-- loop table function under the namespace
+1
 -- SHOW COLUMNS with a separate namespaced FROM
 2
 -- UNDROP parses a multipart table path

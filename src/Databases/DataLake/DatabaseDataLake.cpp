@@ -615,8 +615,11 @@ void DatabaseDataLake::validateTableNamespace(const Names & namespace_parts, Con
 
 bool DatabaseDataLake::isTableExist(const String & name, ContextPtr /* context_ */) const
 {
-    const auto [namespace_name, table_name] = DataLake::parseTableName(name);
-    return getCatalog()->existsTable(namespace_name, table_name);
+    /// an existence probe must not throw on a name without a namespace
+    const auto parsed = DataLake::tryParseTableName(name);
+    if (!parsed)
+        return false;
+    return getCatalog()->existsTable(parsed->first, parsed->second);
 }
 
 StoragePtr DatabaseDataLake::tryGetTable(const String & name, ContextPtr context_)  const

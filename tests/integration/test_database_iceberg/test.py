@@ -2418,6 +2418,11 @@ def test_namespace_nested_sql_ddl(started_cluster):
         int(node.query(f"EXISTS TABLE {CATALOG_NAME}.`{root}.sub.{table_name}`").strip()) == 0
     ), "table must be dropped from the nested namespace"
 
+    # a name without a namespace is an existence probe, not an error
+    assert (
+        int(node.query(f"EXISTS TABLE {CATALOG_NAME}.name_without_namespace").strip()) == 0
+    ), "EXISTS on a non-namespaced name must return 0"
+
 
 def test_namespace_prefix_mysql_init_db(started_cluster):
     """
