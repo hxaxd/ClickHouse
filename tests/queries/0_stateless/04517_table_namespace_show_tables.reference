@@ -5,6 +5,9 @@ beta
 alpha
 -- WHERE applies to the relative name, same as LIKE
 alpha
+-- WHERE can still use other system.tables columns
+alpha
+beta
 -- SHOW TABLES FROM database.namespace
 alpha
 beta

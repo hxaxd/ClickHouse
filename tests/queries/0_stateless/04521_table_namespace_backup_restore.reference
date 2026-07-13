@@ -4,6 +4,9 @@
 1
 2
 1
+-- a restore source names the backup contents, not the live namespace scope
+1
+1
 -- EXCEPT TABLE folds a namespace path but keeps rejecting real databases
 1
 1

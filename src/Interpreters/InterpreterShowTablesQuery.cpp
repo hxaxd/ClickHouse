@@ -198,8 +198,8 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
         rewritten_query << (scoped ? "SELECT relative_name AS name FROM " : "SELECT name FROM ");
 
     if (scoped)
-        rewritten_query << "(SELECT substring(name, " << (table_namespace.size() + 2) << ") AS relative_name"
-                        << (query.full ? ", engine" : "") << " FROM system.tables";
+        rewritten_query << "(SELECT * EXCEPT (name), substring(system.tables.name, " << (table_namespace.size() + 2)
+                        << ") AS relative_name FROM system.tables";
     else if (query.dictionaries)
         rewritten_query << "system.dictionaries";
     else
@@ -228,8 +228,8 @@ String InterpreterShowTablesQuery::getRewrittenQuery()
             }
             /// the LIKE/NOT LIKE pair means "direct children of the namespace"; the catalog
             /// pushdown recognizes this exact shape (see extractTableNameFilter and ICatalog::getTables)
-            rewritten_query << " AND name LIKE " << DB::quote << (escaped_prefix + "%")
-                            << " AND name NOT LIKE " << DB::quote << (escaped_prefix + "%.%") << ")";
+            rewritten_query << " AND system.tables.name LIKE " << DB::quote << (escaped_prefix + "%")
+                            << " AND system.tables.name NOT LIKE " << DB::quote << (escaped_prefix + "%.%") << ")";
         }
     }
 

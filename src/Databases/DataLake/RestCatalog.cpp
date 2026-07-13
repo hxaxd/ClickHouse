@@ -876,7 +876,7 @@ RestCatalog::Namespaces RestCatalog::listChildNamespaces(const std::string & bas
     catch (const DB::HTTPException & e)
     {
         /// for an existence probe a missing parent just means "does not exist"
-        if (missing_parent_is_empty && e.code() == Poco::Net::HTTPResponse::HTTPStatus::HTTP_NOT_FOUND)
+        if (missing_parent_is_empty && e.getHTTPStatus() == Poco::Net::HTTPResponse::HTTPStatus::HTTP_NOT_FOUND)
             return {};
 
         std::string message = fmt::format(

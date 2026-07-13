@@ -19,6 +19,16 @@ $CLICKHOUSE_CLIENT -q "RESTORE TABLE ns.src AS ns.restored FROM Disk('backups', 
 $CLICKHOUSE_CLIENT -q "SELECT count() FROM \`ns.restored\`"
 $CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.restored\`"
 
+echo "-- a restore source names the backup contents, not the live namespace scope"
+$CLICKHOUSE_CLIENT -m -q "
+    CREATE DATABASE ${db}_old;
+    CREATE TABLE ${db}_old.t (x UInt8) ENGINE = Memory;
+    INSERT INTO ${db}_old.t VALUES (5);
+    BACKUP TABLE ${db}_old.t TO Disk('backups', '${db}_old.zip');
+    DROP DATABASE ${db}_old;
+" | grep -m1 -c "BACKUP_CREATED"
+$CLICKHOUSE_CLIENT -q "RESTORE TABLE ${db}_old.t FROM Disk('backups', '${db}_old.zip')" 2>&1 | grep -m1 -c "UNKNOWN_DATABASE"
+
 echo "-- EXCEPT TABLE folds a namespace path but keeps rejecting real databases"
 $CLICKHOUSE_CLIENT -q "BACKUP DATABASE $db EXCEPT TABLE ns.src TO Disk('backups', '${db}_except.zip')" | grep -m1 -c "BACKUP_CREATED"
 $CLICKHOUSE_CLIENT -m -q "

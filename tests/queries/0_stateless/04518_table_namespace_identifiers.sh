@@ -82,6 +82,9 @@ $CLICKHOUSE_CLIENT -q "SELECT joinGet('$db.ns.jt', 'v', toUInt32(1))"
 $CLICKHOUSE_CLIENT -q "SELECT x FROM loop($db.ns.t) LIMIT 1"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT x FROM loop(currentDatabase(), 't') LIMIT 1"
 
+echo "-- remote with currentDatabase under a namespace"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT count() FROM remote('127.0.0.1', currentDatabase(), 't')"
+
 echo "-- SHOW COLUMNS with a separate namespaced FROM"
 $CLICKHOUSE_CLIENT -q "SHOW COLUMNS FROM t FROM $db.ns" | wc -l
 

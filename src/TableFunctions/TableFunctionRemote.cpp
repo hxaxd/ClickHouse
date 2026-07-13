@@ -12,6 +12,7 @@
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Interpreters/Cluster.h>
 #include <Interpreters/Context.h>
+#include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/IdentifierSemantic.h>
 #include <Common/typeid_cast.h>
 #include <Common/parseRemoteDescription.h>
@@ -192,12 +193,22 @@ void TableFunctionRemote::parseArguments(const ASTPtr & ast_function, ContextPtr
             }
             else
             {
+                /// currentDatabase() may be a logical namespace name ("db.ns"); it is always
+                /// a database operand, never the db.table shorthand
+                bool database_is_current_database = false;
+                if (const auto * database_function = args[arg_num]->as<ASTFunction>())
+                    database_is_current_database = database_function->name == "currentDatabase";
+
                 args[arg_num] = evaluateConstantExpressionForDatabaseName(args[arg_num], context);
                 database = checkAndGetLiteralArgument<String>(args[arg_num], "database");
 
                 ++arg_num;
 
-                auto qualified_name = QualifiedTableName::parseFromString(database);
+                QualifiedTableName qualified_name;
+                if (database_is_current_database)
+                    qualified_name.table = database;
+                else
+                    qualified_name = QualifiedTableName::parseFromString(database);
                 if (qualified_name.database.empty())
                 {
                     if (arg_num >= args.size())
@@ -213,6 +224,17 @@ void TableFunctionRemote::parseArguments(const ASTPtr & ast_function, ContextPtr
 
                 database = std::move(qualified_name.database);
                 table = std::move(qualified_name.table);
+
+                /// fold a logical namespace name into the table path: ("db.ns", "t") -> db.`ns.t`
+                if (database_is_current_database)
+                {
+                    const auto database_info = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(database);
+                    if (!database_info.table_prefix.empty())
+                    {
+                        database = database_info.database;
+                        table = database_info.table_prefix + "." + table;
+                    }
+                }
 
                 /// Cluster function may have sharding key for insert
                 if (is_cluster_function && arg_num < args.size())

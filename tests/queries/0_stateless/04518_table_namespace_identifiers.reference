@@ -64,6 +64,8 @@ one
 one
 1
 1
+-- remote with currentDatabase under a namespace
+2
 -- SHOW COLUMNS with a separate namespaced FROM
 2
 -- UNDROP parses a multipart table path
