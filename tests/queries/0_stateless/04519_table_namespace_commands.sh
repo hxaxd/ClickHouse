@@ -13,6 +13,7 @@ $CLICKHOUSE_CLIENT -m -q "
 
 echo "-- currentDatabase reports the logical name"
 $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentDatabase() == '$db.ns'"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentSchemas(true) = ['$db.ns']"
 $CLICKHOUSE_CLIENT -q "SELECT currentDatabase() == '$db'"
 
 echo "-- INSERT under the namespace"

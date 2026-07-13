@@ -14,6 +14,9 @@
 -- alias wins over the path
 1
 2
+-- IN with a table path on the right-hand side
+2
+2
 -- join of two namespace tables
 1	10
 2	20
@@ -32,6 +35,9 @@
 2	b
 -- alias wins over the path
 1
+2
+-- IN with a table path on the right-hand side
+2
 2
 -- join of two namespace tables
 1	10

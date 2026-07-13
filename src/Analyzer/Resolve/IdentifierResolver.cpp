@@ -283,9 +283,9 @@ QueryTreeNodePtr IdentifierResolver::tryResolveIdentifierAsNestedPrefix(
 std::shared_ptr<TableNode> IdentifierResolver::tryResolveTableIdentifier(const Identifier & table_identifier, const ContextPtr & context)
 {
     size_t parts_size = table_identifier.getPartsSize();
-    if (parts_size < 1 || parts_size > 2)
+    if (parts_size < 1)
         throw Exception(ErrorCodes::INVALID_IDENTIFIER,
-            "Expected table identifier to contain 1 or 2 parts. Actual '{}'",
+            "Expected table identifier to be non-empty. Actual '{}'",
             table_identifier.getFullName());
 
     std::string database_name;
@@ -294,7 +294,10 @@ std::shared_ptr<TableNode> IdentifierResolver::tryResolveTableIdentifier(const I
     if (table_identifier.isCompound())
     {
         database_name = table_identifier[0];
+        /// extra parts are a table path inside the database: db.ns1.ns2.table
         table_name = table_identifier[1];
+        for (size_t i = 2; i < parts_size; ++i)
+            table_name += "." + table_identifier[i];
     }
     else
     {

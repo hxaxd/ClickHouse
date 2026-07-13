@@ -169,9 +169,16 @@ void ASTIdentifier::restoreTable()
 
 boost::intrusive_ptr<ASTTableIdentifier> ASTIdentifier::createTable() const
 {
-    if (name_parts.size() == 1) return make_intrusive<ASTTableIdentifier>(name_parts[0]);
-    if (name_parts.size() == 2) return make_intrusive<ASTTableIdentifier>(name_parts[0], name_parts[1]);
-    return nullptr;
+    if (name_parts.empty())
+        return nullptr;
+    if (name_parts.size() == 1)
+        return make_intrusive<ASTTableIdentifier>(name_parts[0]);
+
+    /// extra parts are a table path inside the database: db.ns1.ns2.table
+    String table_name = name_parts[1];
+    for (size_t i = 2; i < name_parts.size(); ++i)
+        table_name += "." + name_parts[i];
+    return make_intrusive<ASTTableIdentifier>(name_parts[0], table_name);
 }
 
 void ASTIdentifier::resetFullName()

@@ -1123,7 +1123,21 @@ void BackupsWorker::doRestore(
             auto restore_elements = restore_query->elements;
             String addr_database = address->default_database.empty() ? current_database : address->default_database;
             for (auto & element : restore_elements)
+            {
+                /// the initiator cannot tell whether a remote default "a.b" is a database
+                /// or a namespace inside one, so unqualified names cannot be authorized
+                const bool needs_default = (element.type == ASTBackupQuery::TABLE
+                        && (element.database_name.empty() || element.new_database_name.empty()))
+                    || (element.type == ASTBackupQuery::ALL
+                        && std::any_of(element.except_tables.begin(), element.except_tables.end(),
+                            [](const auto & except_table) { return except_table.first.empty(); }));
+                if (needs_default && address->default_database.find('.') != String::npos)
+                    throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                        "Host default database {} may contain a table namespace; "
+                        "qualify the table names in the query explicitly",
+                        backQuoteIfNeed(address->default_database));
                 element.setCurrentDatabase(addr_database);
+            }
             RestorerFromBackup dummy_restorer{restore_elements, restore_settings, nullptr, backup, context, getThreadPool(ThreadPoolId::RESTORE), {}};
             dummy_restorer.run(RestorerFromBackup::CHECK_ACCESS_ONLY);
         }

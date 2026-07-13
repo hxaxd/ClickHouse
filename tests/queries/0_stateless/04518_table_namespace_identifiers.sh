@@ -30,6 +30,10 @@ do
     echo "-- alias wins over the path"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT a.x FROM $db.ns.t AS a ORDER BY a.x"
 
+    echo "-- IN with a table path on the right-hand side"
+    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN $db.ns.t"
+    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN ns.t"
+
     echo "-- join of two namespace tables"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -m -q "
         CREATE TABLE IF NOT EXISTS \`ns.u\` (x UInt32, v UInt32) ENGINE = Memory;

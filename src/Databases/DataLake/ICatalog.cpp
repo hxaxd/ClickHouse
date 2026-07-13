@@ -323,11 +323,16 @@ DB::Names ICatalog::getTables(const TableNameFilter & filter) const
 
         case TableNameFilter::Kind::Equals:
         {
-            /// `name = 'ns.table'` -> list only namespace `ns`; the outer filter keeps the exact row.
+            /// `name = 'ns.table'` -> list namespace `ns` and keep the exact name only, so
+            /// downstream metadata fetches don't touch sibling tables.
             const auto pos = filter.value.rfind('.');
             if (pos == std::string::npos)
                 return getTables();
-            return listTablesInNamespaceDirect(filter.value.substr(0, pos));
+            DB::Names result;
+            for (auto & table : listTablesInNamespaceDirect(filter.value.substr(0, pos)))
+                if (table == filter.value)
+                    result.push_back(std::move(table));
+            return result;
         }
 
         case TableNameFilter::Kind::Like:
