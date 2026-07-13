@@ -53,6 +53,9 @@ $CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" --param_t="t" \
     -q "SELECT count() FROM {d:Identifier}.{n:Identifier}.{t:Identifier}"
 $CLICKHOUSE_CLIENT --param_n="ns" --param_t="t" \
     -q "SELECT count() FROM {n:Identifier}.{t:Identifier}"
+$CLICKHOUSE_CLIENT --param_d="$db" --param_n="ns" --param_t="created_p" \
+    -q "CREATE TABLE {d:Identifier}.{n:Identifier}.{t:Identifier} (x Int8) ENGINE = Memory"
+$CLICKHOUSE_CLIENT -q "EXISTS TABLE $db.\`ns.created_p\`"
 
 echo "-- joinGet with a namespace-path table string"
 $CLICKHOUSE_CLIENT -m -q "

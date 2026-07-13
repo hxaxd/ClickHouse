@@ -86,9 +86,7 @@ By the end, you'll have ClickHouse Cloud connected to your Iceberg catalog and b
 Now that you have connected to your data lake, you can test out writing an Iceberg table in ClickHouse.
 
 <Tip>
-A table inside a namespace can be referenced by spelling out every part with dots,
-e.g. `catalog_name.schema.table`, or by quoting the table path as a single
-identifier: ``catalog_name.`schema.table` ``.
+Be mindful of your quotes. ClickHouse doesn't support three part namespaces, you must quote your `schema.table`.
 </Tip>
 
 <ClickHouseAcademyCTA />

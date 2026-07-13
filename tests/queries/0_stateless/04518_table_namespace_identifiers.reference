@@ -51,6 +51,7 @@
 -- identifiers from query parameters
 2
 2
+1
 -- joinGet with a namespace-path table string
 one
 -- joinGet dependency tracking matches its runtime resolution

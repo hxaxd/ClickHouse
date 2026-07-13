@@ -239,27 +239,37 @@ String ASTTableIdentifier::getDatabaseName() const
 
 ASTPtr ASTTableIdentifier::getTable() const
 {
-    if (name_parts.size() == 2)
-    {
-        if (!name_parts[1].empty())
-            return make_intrusive<ASTIdentifier>(name_parts[1]);
+    if (name_parts.empty())
+        return {};
 
-        if (name_parts[0].empty())
-            return make_intrusive<ASTIdentifier>("", children[1]->clone());
-        return make_intrusive<ASTIdentifier>("", children[0]->clone());
-    }
     if (name_parts.size() == 1)
     {
         if (name_parts[0].empty())
             return make_intrusive<ASTIdentifier>("", children[0]->clone());
         return make_intrusive<ASTIdentifier>(name_parts[0]);
     }
-    return {};
+
+    /// everything after the database is the table path; parameter children stay
+    /// aligned with their empty parts so substitution can still fill them
+    std::vector<String> table_parts(name_parts.begin() + 1, name_parts.end());
+    ASTs table_params;
+    size_t param_idx = name_parts[0].empty() ? 1 : 0;
+    for (size_t i = 1; i < name_parts.size(); ++i)
+        if (name_parts[i].empty())
+            table_params.push_back(children.at(param_idx++)->clone());
+
+    if (table_parts.size() == 1)
+    {
+        if (table_parts[0].empty())
+            return make_intrusive<ASTIdentifier>("", std::move(table_params[0]));
+        return make_intrusive<ASTIdentifier>(table_parts[0]);
+    }
+    return make_intrusive<ASTIdentifier>(std::move(table_parts), false, std::move(table_params));
 }
 
 ASTPtr ASTTableIdentifier::getDatabase() const
 {
-    if (name_parts.size() == 2)
+    if (name_parts.size() >= 2)
     {
         if (name_parts[0].empty())
             return make_intrusive<ASTIdentifier>("", children[0]->clone());
