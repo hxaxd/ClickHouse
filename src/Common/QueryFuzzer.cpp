@@ -4270,7 +4270,6 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
          "toStartOfTenMinutes",
          "toStartOfWeek",
          "toStartOfYear",
-         "toTime",
          "toUnixTimestamp",
          "toWeek",
          "toYear",
@@ -4687,8 +4686,10 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         {"tupleDivide", "tupleIntDiv", "tupleIntDivOrZero", "tupleMinus", "tupleModulo", "tupleMultiply", "tuplePlus"},
         /// Tuple-scalar arithmetic (Tuple, Number → Tuple)
         {"tupleMultiplyByNumber", "tupleDivideByNumber", "tupleModuloByNumber", "tupleIntDivByNumber", "tupleIntDivOrZeroByNumber"},
-        /// Snowflake ID ↔ DateTime conversions
-        {"dateTimeToSnowflakeID", "snowflakeIDToDateTime"},
+        /// Snowflake ID → date-time (UInt64 → DateTime/DateTime64)
+        {"snowflakeIDToDateTime", "snowflakeIDToDateTime64"},
+        /// Date-time → Snowflake ID (DateTime/DateTime64 → UInt64)
+        {"dateTimeToSnowflakeID", "dateTime64ToSnowflakeID"},
         /// IP CIDR range functions (IP, UInt8 → Tuple)
         {"IPv4CIDRToRange", "IPv6CIDRToRange"},
         /// IP string predicates (String → UInt8)
