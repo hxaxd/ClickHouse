@@ -195,6 +195,9 @@ bool ParserShowTablesQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expec
                 ASTPtr part;
                 if (!name_p.parse(pos, part, expected))
                     return false;
+                /// a quoted component with a literal dot would alias another path - reject it
+                if (getIdentifierName(part).find('.') != String::npos)
+                    return false;
                 append_part(part);
                 folded = true;
             }

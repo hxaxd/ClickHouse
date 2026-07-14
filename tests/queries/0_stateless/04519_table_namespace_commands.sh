@@ -11,9 +11,9 @@ $CLICKHOUSE_CLIENT -m -q "
     INSERT INTO \`ns.t\` VALUES (1), (2), (3);
 "
 
-echo "-- currentDatabase reports the logical name"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentDatabase() == '$db.ns'"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentSchemas(true) = ['$db.ns']"
+echo "-- currentDatabase reports the physical database"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentDatabase() == '$db'"
+$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT currentSchemas(true) = ['$db']"
 $CLICKHOUSE_CLIENT -q "SELECT currentDatabase() == '$db'"
 
 echo "-- system.processes agrees with currentDatabase under a namespace"

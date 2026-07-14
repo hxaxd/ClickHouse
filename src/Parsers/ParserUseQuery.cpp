@@ -59,6 +59,9 @@ bool ParserUseQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expected)
             ASTPtr part;
             if (!part_p.parse(pos, part, expected))
                 return false;
+            /// a quoted component with a literal dot would alias another path - reject it
+            if (getIdentifierName(part).find('.') != String::npos)
+                return false;
             database_name += "." + getIdentifierName(part);
         } while (s_dot.ignore(pos, expected));
 

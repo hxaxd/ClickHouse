@@ -21,9 +21,6 @@ struct CurrentDatabaseInfo
     String database;
     String table_prefix;
 
-    /// user-visible name: "db" or "db.namespace"
-    String getLogicalName() const { return table_prefix.empty() ? database : database + "." + table_prefix; }
-
     bool operator==(const CurrentDatabaseInfo &) const = default;
 };
 

@@ -344,8 +344,7 @@ private:
             /// The `updatePointerToChild` function replaces the old address with the new one without access, so it is safe to invalidate it in place.
             /// However, just for safety, let's store the old node for a little longer.
             ASTPtr old_node = node;
-            node = make_intrusive<ASTLiteral>(
-                table_prefix.empty() ? database_name : database_name + "." + table_prefix);
+            node = make_intrusive<ASTLiteral>(database_name);
 
             if (parent)
             {

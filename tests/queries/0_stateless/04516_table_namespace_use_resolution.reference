@@ -18,5 +18,8 @@
 1
 -- materialized view target with a namespace path
 7
+-- a quoted component with a literal dot cannot be part of a longer path
+1
+1
 -- temporary table takes precedence over the namespace
 temp

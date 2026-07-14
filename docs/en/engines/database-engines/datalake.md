@@ -103,9 +103,14 @@ SELECT * FROM table;
 
 `USE catalog_name.namespace` validates that the namespace exists in the
 catalog and fails otherwise. While a namespace is selected, `currentDatabase`
-returns the combined name (`catalog_name.namespace`), and `SHOW TABLES` lists
+still returns the physical database (`catalog_name`), and `SHOW TABLES` lists
 only the direct children of the namespace, by their names relative to it.
 The prefix is cleared as soon as you switch to another database with `USE`.
+
+A namespace component cannot contain a literal dot: a back-quoted component
+like `` catalog_name.`a.b`.table `` is rejected, because after parsing it would
+be indistinguishable from `catalog_name.a.b.table`. Address such a table by
+quoting the whole path: `` catalog_name.`a.b.table` ``.
 
 The same mechanism works for regular databases (`Atomic`, `Memory`), where a
 dot inside a table name lexically defines a namespace: a table named

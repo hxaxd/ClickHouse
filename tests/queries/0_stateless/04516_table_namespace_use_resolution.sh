@@ -55,6 +55,10 @@ $CLICKHOUSE_CLIENT -m -q "
     SELECT z FROM \`ns.sink\`;
 "
 
+echo "-- a quoted component with a literal dot cannot be part of a longer path"
+$CLICKHOUSE_CLIENT -q "SELECT * FROM $db.\`a.b\`.t" 2>&1 | grep -m1 -c "Syntax error"
+$CLICKHOUSE_CLIENT -q "USE $db.\`a.b\`" 2>&1 | grep -m1 -c "Syntax error"
+
 echo "-- temporary table takes precedence over the namespace"
 $CLICKHOUSE_CLIENT -m -q "
     USE $db.ns;

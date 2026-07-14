@@ -19,7 +19,6 @@
 1
 -- IN with a table path on the right-hand side
 2
-2
 -- join of two namespace tables
 1	10
 2	20
@@ -44,7 +43,6 @@
 1
 -- IN with a table path on the right-hand side
 2
-2
 -- join of two namespace tables
 1	10
 2	20
@@ -63,8 +61,7 @@ one
 -- fully qualified namespace paths in joinGet and loop
 one
 1
-1
--- remote with currentDatabase under a namespace
+-- a fully qualified IN table path works in the new analyzer
 2
 -- SHOW COLUMNS with a separate namespaced FROM
 2

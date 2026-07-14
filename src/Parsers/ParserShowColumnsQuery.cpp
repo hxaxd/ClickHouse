@@ -50,6 +50,10 @@ bool ParserShowColumnsQuery::parseImpl(Pos & pos, ASTPtr & node, Expected & expe
         query->database = parts[0];
         /// Fold namespace parts into the table name (DataLakeCatalog databases):
         /// catalog.ns1.ns2.table -> table `ns1.ns2.table`
+        /// a quoted component with a literal dot would alias another path - reject it
+        for (size_t i = 1; i < parts.size(); ++i)
+            if (parts.size() > 2 && parts[i].find('.') != String::npos)
+                return false;
         query->table = parts[1];
         for (size_t i = 2; i < parts.size(); ++i)
             query->table += "." + parts[i];

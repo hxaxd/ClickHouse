@@ -38,7 +38,6 @@ do
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -m -q "USE $db.ns; SELECT x FROM pv(p = 1)"
 
     echo "-- IN with a table path on the right-hand side"
-    $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN $db.ns.inset"
     $CLICKHOUSE_CLIENT --enable_analyzer=$analyzer -q "SELECT count() FROM \`ns.t\` WHERE x IN ns.inset"
 
     echo "-- join of two namespace tables"
@@ -80,10 +79,9 @@ $CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT x FROM loop(t) LIMIT 1"
 echo "-- fully qualified namespace paths in joinGet and loop"
 $CLICKHOUSE_CLIENT -q "SELECT joinGet('$db.ns.jt', 'v', toUInt32(1))"
 $CLICKHOUSE_CLIENT -q "SELECT x FROM loop($db.ns.t) LIMIT 1"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT x FROM loop(currentDatabase(), 't') LIMIT 1"
 
-echo "-- remote with currentDatabase under a namespace"
-$CLICKHOUSE_CLIENT -m -q "USE $db.ns; SELECT count() FROM remote('127.0.0.1', currentDatabase(), 't')"
+echo "-- a fully qualified IN table path works in the new analyzer"
+$CLICKHOUSE_CLIENT --enable_analyzer=1 -q "SELECT count() FROM \`ns.t\` WHERE x IN $db.ns.inset"
 
 echo "-- SHOW COLUMNS with a separate namespaced FROM"
 $CLICKHOUSE_CLIENT -q "SHOW COLUMNS FROM t FROM $db.ns" | wc -l

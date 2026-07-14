@@ -557,7 +557,11 @@ bool ParserCompoundIdentifier::parseImpl(Pos & pos, ASTPtr & node, Expected & ex
         }
         else
         {
-            /// fold a multipart path into the table name: db.ns1.ns2.table -> (db, `ns1.ns2.table`)
+            /// fold a multipart path into the table name: db.ns1.ns2.table -> (db, `ns1.ns2.table`).
+            /// a quoted component with a literal dot would alias another path - reject it
+            for (size_t i = 1; i < parts.size(); ++i)
+                if (parts[i].find('.') != String::npos)
+                    return false;
             String table_name = parts[1];
             for (size_t i = 2; i < parts.size(); ++i)
                 table_name += "." + parts[i];

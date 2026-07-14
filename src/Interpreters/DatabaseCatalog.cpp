@@ -937,15 +937,14 @@ CurrentDatabaseInfo DatabaseCatalog::splitTablePrefixFromDatabaseName(const Stri
 
 StorageID DatabaseCatalog::applyNamespaceScope(StorageID storage_id, const CurrentDatabaseInfo & scope) const
 {
-    if (storage_id.database_name.empty())
+    if (storage_id.database_name.empty() && !scope.table_prefix.empty())
     {
-        if (scope.table_prefix.empty())
-            return storage_id;
         storage_id.database_name = scope.database;
         storage_id.table_name = scope.table_prefix + "." + storage_id.table_name;
-        return storage_id;
     }
-    return applyNamespaceQualifier(std::move(storage_id), scope.database);
+    /// a qualified name is kept as written: the initiator's catalog is not
+    /// authoritative for what the qualifier means on remote hosts
+    return storage_id;
 }
 
 StorageID DatabaseCatalog::applyNamespaceQualifier(StorageID storage_id, const String & current_database) const

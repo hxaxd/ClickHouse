@@ -198,17 +198,7 @@ void TableFunctionRemote::parseArguments(const ASTPtr & ast_function, ContextPtr
 
                 ++arg_num;
 
-                /// the session's logical name ("db.ns", e.g. a folded currentDatabase())
-                /// is a database operand, never the db.table shorthand
-                const auto session_database_info = context->getCurrentDatabaseInfo();
-                const bool database_is_current_database = !session_database_info.table_prefix.empty()
-                    && database == session_database_info.getLogicalName();
-
-                QualifiedTableName qualified_name;
-                if (database_is_current_database)
-                    qualified_name.table = database;
-                else
-                    qualified_name = QualifiedTableName::parseFromString(database);
+                auto qualified_name = QualifiedTableName::parseFromString(database);
                 if (qualified_name.database.empty())
                 {
                     if (arg_num >= args.size())
@@ -224,17 +214,6 @@ void TableFunctionRemote::parseArguments(const ASTPtr & ast_function, ContextPtr
 
                 database = std::move(qualified_name.database);
                 table = std::move(qualified_name.table);
-
-                /// fold a logical namespace name into the table path: ("db.ns", "t") -> db.`ns.t`
-                if (database_is_current_database)
-                {
-                    const auto database_info = DatabaseCatalog::instance().splitTablePrefixFromDatabaseName(database);
-                    if (!database_info.table_prefix.empty())
-                    {
-                        database = database_info.database;
-                        table = database_info.table_prefix + "." + table;
-                    }
-                }
 
                 /// Cluster function may have sharding key for insert
                 if (is_cluster_function && arg_num < args.size())

@@ -45,21 +45,25 @@ BlockIO InterpreterRenameQuery::execute()
             rename.qualifyUnqualifiedNames(database_info.database, database_info.table_prefix);
 
         /// a source qualifier that isn't a database selects a table path in the current database.
-        /// destinations stay strict: a misspelled database must fail, not create a dotted table
-        for (auto & elem : rename.getElements())
+        /// destinations stay strict: a misspelled database must fail, not create a dotted table.
+        /// local only: the initiator's catalog is not authoritative for remote hosts
+        if (rename.cluster.empty())
         {
-            auto reinterpret = [&](ASTRenameQuery::Table & ref)
+            for (auto & elem : rename.getElements())
             {
-                if (!ref.database)
-                    return;
-                auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
-                    StorageID(ref.getDatabase(), ref.getTable()), database_info.database);
-                if (folded.table_name != ref.getTable())
-                    rename.resetTableName(ref, folded.database_name, folded.table_name);
-            };
-            reinterpret(elem.from);
-            if (rename.exchange)
-                reinterpret(elem.to);
+                auto reinterpret = [&](ASTRenameQuery::Table & ref)
+                {
+                    if (!ref.database)
+                        return;
+                    auto folded = DatabaseCatalog::instance().applyNamespaceQualifier(
+                        StorageID(ref.getDatabase(), ref.getTable()), database_info.database);
+                    if (folded.table_name != ref.getTable())
+                        rename.resetTableName(ref, folded.database_name, folded.table_name);
+                };
+                reinterpret(elem.from);
+                if (rename.exchange)
+                    reinterpret(elem.to);
+            }
         }
     }
 

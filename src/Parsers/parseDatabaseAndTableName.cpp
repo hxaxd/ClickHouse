@@ -40,6 +40,11 @@ bool foldNamespacesIntoTableName(IParser::Pos & pos, Expected & expected, ASTPtr
     if (!folded)
         return true;
 
+    /// a quoted component with a literal dot would alias another path - reject it
+    for (const auto & part : parts)
+        if (part.find('.') != String::npos)
+            return false;
+
     if (params.empty())
     {
         String table_name = parts[0];
