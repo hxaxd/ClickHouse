@@ -4799,8 +4799,8 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         {"geometryIntersectCartesian", "geometryIntersectSpherical"}};
 
 /// Rewrite a lightweight `DELETE FROM` / `UPDATE` into the equivalent `ALTER TABLE` mutation,
-/// feeding the same payload through the other pipeline; the lightweight `SETTINGS` clause has
-/// no `ALTER` counterpart and is dropped.
+/// feeding the same payload through the other pipeline; the trailing query `SETTINGS` clause is
+/// carried over (both forms share the ASTQueryWithOutput path) so e.g. `mutations_sync` is kept.
 static ASTPtr lightweightToAlterMutation(
     const ASTQueryWithTableAndOutput & source,
     const String & cluster,
@@ -4830,6 +4830,11 @@ static ASTPtr lightweightToAlterMutation(
         alter->setDatabase(source.getDatabase());
     alter->uuid = source.uuid;
     alter->cluster = cluster;
+    if (source.settings_ast)
+    {
+        alter->settings_ast = source.settings_ast->clone();
+        alter->children.push_back(alter->settings_ast);
+    }
     return alter;
 }
 
@@ -4869,6 +4874,7 @@ static ASTPtr alterMutationToLightweight(const ASTAlterQuery & alter)
         fill_member(query, command->partition, query->partition);
         fill_member(query, command->predicate, query->predicate);
         fill_table(query);
+        fill_member(query, alter.settings_ast.get(), query->settings_ast);
         return query;
     }
 
@@ -4879,6 +4885,7 @@ static ASTPtr alterMutationToLightweight(const ASTAlterQuery & alter)
         fill_member(query, command->predicate, query->predicate);
         fill_member(query, command->update_assignments, query->assignments);
         fill_table(query);
+        fill_member(query, alter.settings_ast.get(), query->settings_ast);
         return query;
     }
 
@@ -6326,6 +6333,14 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         if (fuzz_rand() % 20 == 0)
         {
             optimize_query->dry_run = !optimize_query->dry_run;
+            /// The formatter prints PARTS ... only inside the DRY RUN branch, so a leftover
+            /// parts_list would be silently dropped on reparse
+            if (!optimize_query->dry_run && optimize_query->parts_list)
+            {
+                auto & ch = optimize_query->children;
+                ch.erase(std::remove(ch.begin(), ch.end(), optimize_query->parts_list), ch.end());
+                optimize_query->parts_list = {};
+            }
         }
         /// The parser requires PARTS after DRY RUN, so always synthesize a missing list
         if (optimize_query->dry_run && !optimize_query->parts_list)
