@@ -585,7 +585,7 @@ Field QueryFuzzer::fuzzField(Field field)
     if (type == Field::Types::String)
     {
         auto & str = field.safeGet<std::string>();
-        const UInt64 action = fuzz_rand() % 15;
+        const UInt64 action = fuzz_rand() % 17;
         switch (action)
         {
             case 0: str = ""; break;
@@ -647,6 +647,13 @@ Field QueryFuzzer::fuzzField(Field field)
                 str = vals[fuzz_rand() % vals.size()];
                 break;
             }
+            case 12:
+                /// Shuffle the bytes — mangles UTF-8 / keyword / date / JSON shape while keeping the byte histogram
+                if (!str.empty())
+                {
+                    std::shuffle(str.begin(), str.end(), fuzz_rand);
+                }
+                break;
             default:
                 /// Do nothing
                 break;
@@ -679,6 +686,13 @@ Field QueryFuzzer::fuzzField(Field field)
                 if (debug_stream)
                     *debug_stream << "inserted (0)\n";
             }
+        }
+
+        if (fuzz_rand() % 5 == 0 && arr.size() >= 2)
+        {
+            std::shuffle(arr.begin(), arr.end(), fuzz_rand);
+            if (debug_stream)
+                *debug_stream << "shuffled\n";
         }
 
         for (auto & element : arr)
@@ -718,6 +732,13 @@ Field QueryFuzzer::fuzzField(Field field)
             }
         }
 
+        if (fuzz_rand() % 5 == 0 && arr.size() >= 2)
+        {
+            std::shuffle(arr.begin(), arr.end(), fuzz_rand);
+            if (debug_stream)
+                *debug_stream << "shuffled\n";
+        }
+
         for (auto & element : arr)
         {
             element = fuzzField(element);
@@ -744,6 +765,24 @@ Field QueryFuzzer::fuzzField(Field field)
             map.insert(map.begin() + pos + 1, fuzzField(getRandomField(fuzz_rand() % 11)));
             if (debug_stream)
                 *debug_stream << fmt::format("map: inserted pair (pos {})\n", pos);
+        }
+
+        /// Shuffle whole key-value pairs (a flat shuffle would break key/value adjacency).
+        if (fuzz_rand() % 5 == 0 && map.size() >= 4)
+        {
+            std::vector<std::pair<Field, Field>> pairs;
+            pairs.reserve(map.size() / 2);
+            for (size_t i = 0; i + 1 < map.size(); i += 2)
+                pairs.emplace_back(std::move(map[i]), std::move(map[i + 1]));
+            std::shuffle(pairs.begin(), pairs.end(), fuzz_rand);
+            map.clear();
+            for (auto & [key, value] : pairs)
+            {
+                map.push_back(std::move(key));
+                map.push_back(std::move(value));
+            }
+            if (debug_stream)
+                *debug_stream << "map: shuffled pairs\n";
         }
 
         for (auto & element : map)
