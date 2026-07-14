@@ -3683,7 +3683,9 @@ static const auto identifier_lambda = [](std::pair<std::string, ASTPtr> & p)
     return id && !id->name_parts.empty() && !id->isParam();
 };
 
-static const Strings in_variants = {"in", "notIn", "globalIn", "globalNotIn", "nullIn", "notNullIn", "globalNullIn", "globalNotNullIn"};
+/// Only the round-trippable infix IN spellings. The null* family (nullIn/notNullIn/...) formats as
+/// plain IN and reparses as in/notIn, so it would silently lose the mutation.
+static const Strings in_variants = {"in", "notIn", "globalIn", "globalNotIn"};
 
 ASTPtr QueryFuzzer::generatePredicate()
 {
