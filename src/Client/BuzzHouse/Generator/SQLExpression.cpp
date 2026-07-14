@@ -897,6 +897,12 @@ void StatementGenerator::generateFuncCall(RandomGenerator & rg, const bool allow
                     generated_params += 4;
                     break;
                 case SQLFuncCall_AggregateCombinator::SQLFuncCall_AggregateCombinator_Tuple:
+                    /// -Tuple needs at least one argument (each must be a Tuple of the same size).
+                    /// A zero-arg base aggregate like count would emit an invalid countTuple(), so skip it.
+                    if (func_call->args_size() == 0)
+                    {
+                        continue;
+                    }
                     /// The combinator requires every argument to be a Tuple of the same size, so most
                     /// of the times wrap each argument in a 1-element tuple to make the call valid.
                     if (rg.nextSmallNumber() < 9)

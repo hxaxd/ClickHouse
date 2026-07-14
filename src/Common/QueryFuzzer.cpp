@@ -4358,6 +4358,26 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
          "toFloat64OrNull",
          "toFloat64OrZero",
          "toFloat64OrDefault"},
+        /// Byte reinterpretation casts (single value → type with the same bytes)
+        {"reinterpretAsUInt8",
+         "reinterpretAsUInt16",
+         "reinterpretAsUInt32",
+         "reinterpretAsUInt64",
+         "reinterpretAsUInt128",
+         "reinterpretAsUInt256",
+         "reinterpretAsInt8",
+         "reinterpretAsInt16",
+         "reinterpretAsInt32",
+         "reinterpretAsInt64",
+         "reinterpretAsInt128",
+         "reinterpretAsInt256",
+         "reinterpretAsFloat32",
+         "reinterpretAsFloat64",
+         "reinterpretAsDate",
+         "reinterpretAsDateTime",
+         "reinterpretAsString",
+         "reinterpretAsFixedString",
+         "reinterpretAsUUID"},
         /// Date/datetime type casts
         {"toDate",
          "toDate32",
@@ -4423,16 +4443,44 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
          "extractAll"},
         /// Vector distance metrics
         {"cosineDistance", "L1Distance", "L2Distance", "L2SquaredDistance", "LinfDistance"},
+        /// QBit transposed distance metrics (shared signature within the family)
+        {"cosineDistanceTransposed", "L2DistanceTransposed", "dotProductTransposed"},
+        /// QBit transposed-quantized distance metrics (shared signature within the family)
+        {"cosineDistanceTransposedQuantized", "L2DistanceTransposedQuantized", "dotProductTransposedQuantized"},
         /// Vector norms (single array → Float64)
         {"L1Norm", "L2Norm", "L2SquaredNorm", "LinfNorm"},
         /// Array scalar reductions (array → scalar)
         {"arrayMin", "arrayMax", "arraySum", "arrayProduct", "arrayAvg", "arrayUniq"},
         /// Array transform functions (array → array, no lambda)
-        {"arrayReverse",           "arrayShuffle",    "arrayDistinct",  "arrayCompact",      "arrayFlatten",       "arrayConcat",
-         "arrayIntersect",         "arrayPopFront",   "arrayPopBack",   "arrayPushFront",    "arrayPushBack",      "arrayRotateLeft",
-         "arrayRotateRight",       "arraySlice",      "arrayZip",       "arrayEnumerate",    "arrayEnumerateUniq", "arrayCumSum",
-         "arrayCumSumNonNegative", "arrayDifference", "arrayTranspose", "arrayJaccardIndex", "arrayRandomSample",  "arrayShingles",
-         "arrayShiftLeft",         "arrayShiftRight"},
+        {"arrayReverse",
+         "arrayShuffle",
+         "arrayDistinct",
+         "arrayCompact",
+         "arrayFlatten",
+         "arrayConcat",
+         "arrayIntersect",
+         "arrayPopFront",
+         "arrayPopBack",
+         "arrayPushFront",
+         "arrayPushBack",
+         "arrayRotateLeft",
+         "arrayRotateRight",
+         "arraySlice",
+         "arrayZip",
+         "arrayEnumerate",
+         "arrayEnumerateUniq",
+         "arrayCumSum",
+         "arrayCumSumNonNegative",
+         "arrayDifference",
+         "arrayTranspose",
+         "arrayJaccardIndex",
+         "arrayRandomSample",
+         "arrayShingles",
+         "arrayShiftLeft",
+         "arrayShiftRight",
+         "arrayUnion",
+         "arraySymmetricDifference",
+         "arrayZipUnaligned"},
         /// URL hierarchy generators (url → Array(String))
         {"URLHierarchy", "URLPathHierarchy"},
         /// Unary trig functions, logarithms, exponentials and roots (number → Float64)
@@ -4459,6 +4507,7 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
          "wyHash64",
          "xxHash32",
          "xxHash64",
+         "xxHash64Spark",
          "xxh3"},
         /// Non-cryptographic 128-bit hash functions (→ FixedString(16))
         {"sipHash128", "sipHash128Reference", "murmurHash3_128"},
@@ -4496,6 +4545,8 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         {"mapAdd", "mapSubtract"},
         /// Map sorting (map → map)
         {"mapSort", "mapReverseSort"},
+        /// Map partial sorting (shared signature: limit, map → map)
+        {"mapPartialSort", "mapPartialReverseSort"},
         /// Higher-order map functions (lambda, map → map or UInt8)
         higher_order_map_funcs,
         /// Binary encoding (bytes → encoded String)
@@ -4634,6 +4685,8 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
         {"bitmapSubsetInRange", "bitmapSubsetLimit"},
         /// Tuple element-wise arithmetic (Tuple, Tuple → Tuple)
         {"tupleDivide", "tupleIntDiv", "tupleIntDivOrZero", "tupleMinus", "tupleModulo", "tupleMultiply", "tuplePlus"},
+        /// Tuple-scalar arithmetic (Tuple, Number → Tuple)
+        {"tupleMultiplyByNumber", "tupleDivideByNumber", "tupleModuloByNumber", "tupleIntDivByNumber", "tupleIntDivOrZeroByNumber"},
         /// Snowflake ID ↔ DateTime conversions
         {"dateTimeToSnowflakeID", "snowflakeIDToDateTime"},
         /// IP CIDR range functions (IP, UInt8 → Tuple)
@@ -4741,7 +4794,9 @@ static const std::vector<std::unordered_set<String>> & swapFuncs
          "dictGetUUIDOrDefault"},
         /// Dictionary key probes and hierarchy walks (dict, key[, level/ancestor key]);
         /// the hierarchy functions additionally require a hierarchical layout
-        {"dictGetChildren", "dictGetDescendants", "dictGetHierarchy", "dictHas", "dictIsIn"}};
+        {"dictGetChildren", "dictGetDescendants", "dictGetHierarchy", "dictHas", "dictIsIn"},
+        /// Geometry intersection: Cartesian vs Spherical point model, identical (geom1, geom2) signature
+        {"geometryIntersectCartesian", "geometryIntersectSpherical"}};
 
 /// Rewrite a lightweight `DELETE FROM` / `UPDATE` into the equivalent `ALTER TABLE` mutation,
 /// feeding the same payload through the other pipeline; the lightweight `SETTINGS` clause has

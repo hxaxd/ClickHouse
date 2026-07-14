@@ -172,25 +172,26 @@ class SparkAndClickHouseCheck:
                 return False
 
             # Big-int CH types (UInt64/128/256, Int128/256) map to Spark Long or an under-precision
-            # Decimal, so they are not losslessly representable in the lake. Dropping just those
-            # columns from the row hash would silently pass a table diverging only in them, so skip
-            # the whole table's value comparison (the row-count check above still applies).
+            # Decimal, so they are not losslessly representable in the lake. Exclude only those
+            # columns from the hash and keep comparing the rest; falling back to a count-only check
+            # for the whole table would let a divergence in any other column slip through.
             uncomparable = [
                 v
                 for v in table.columns.values()
-                if _LOSSY_CH_INT_RE.search(v.clickhouse_type or "")
+                if self._check_type_valid_for_comparison(v.spark_type)
+                and _LOSSY_CH_INT_RE.search(v.clickhouse_type or "")
             ]
             if uncomparable:
                 self.logger.info(
-                    f"Skipping value comparison for {table.get_clickhouse_path()}: column(s) "
-                    f"{','.join(c.column_name for c in uncomparable)} not losslessly representable in the lake"
+                    f"Excluding column(s) {','.join(c.column_name for c in uncomparable)} from the "
+                    f"value comparison for {table.get_clickhouse_path()}: not losslessly representable in the lake"
                 )
-                return True
 
             order_by_cols = [
                 v
                 for v in table.columns.values()
                 if self._check_type_valid_for_comparison(v.spark_type)
+                and not _LOSSY_CH_INT_RE.search(v.clickhouse_type or "")
             ]
             if len(order_by_cols) == 0:
                 self.logger.info(
