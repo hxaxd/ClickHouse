@@ -1614,15 +1614,24 @@ class SettingsRandomizer:
         "use_text_index_header_cache": lambda: random.random() > 0.05,
         "query_plan_min_columns_for_join_lazy_indexing": lambda: random.randint(0, 5),
         "query_plan_max_limit_for_join_lazy_indexing": lambda: random.choice([0, 100, 1000, 10000]),
-        # Settings added in 26.7
         "compile_regular_expressions": lambda: random.randint(0, 1),
         "min_count_to_compile_regular_expression": lambda: random.choice([0, 3]),
         "query_plan_merge_expression_into_join": lambda: random.random() > 0.05,
-        # When disabled, the JOIN runtime filter falls back to the fixed bloom filter size
         "join_runtime_filter_size_from_hash_table_stats": lambda: random.random() > 0.05,
         "use_partition_minmax_for_primary_key_pruning": lambda: random.random() > 0.05,
-        # 0 = unlimited; a tiny budget stops deriving transitive comparisons early (never throws)
         "optimize_and_compare_chain_max_hash_work": lambda: random.choice([0, 1, 1000, 5_000_000]),
+        "correlated_subqueries_use_in_memory_buffer": lambda: random.random() > 0.05,
+        "enable_identifier_resolve_cache": lambda: random.random() > 0.05,
+        "use_parquet_metadata_cache": lambda: random.randint(0, 1),
+        "defer_partition_pruning_after_final": lambda: random.random() > 0.05,
+        "allow_key_condition_coalesce_rewrite": lambda: random.random() > 0.05,
+        "use_constant_folding_in_index_analysis": lambda: random.random() < 0.5,
+        "allow_aggregate_partitions_independently": lambda: random.random() > 0.05,
+        # Gated by query_plan_optimize_lazy_final (randomized above); inert when it is off. Kept out
+        # of conditional_settings on purpose: that map forces the child to False, invalid for a numeric.
+        "max_bytes_for_lazy_final": lambda: random.choice([0, 1, 256_000_000]),
+        "min_filtered_ratio_for_lazy_final": lambda: random.choice([0.0, 0.5, 1.0]),
+        "max_streams_for_union_step": lambda: random.choice([0, 1, 2, 10]),
     }
 
     dependent_settings = {
