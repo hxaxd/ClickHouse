@@ -5762,6 +5762,9 @@ void QueryFuzzer::fuzz(ASTPtr & ast)
         for (auto & c : set->changes)
             if (fuzz_rand() % 50 == 0)
                 c.value = fuzzField(c.value);
+        /// Permute the settings order (reparse-safe; stresses order-dependent settings application)
+        if (set->changes.size() > 1 && fuzz_rand() % 20 == 0)
+            std::shuffle(set->changes.begin(), set->changes.end(), fuzz_rand);
     }
     else if (auto * param = typeid_cast<ASTQueryParameter *>(ast.get()))
     {
